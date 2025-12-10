@@ -390,7 +390,7 @@ async def health_check():
     return {
         "status": "healthy",
         "message": "Attendance System is running",
-        "version": "1.1.0",
+        "version": "1.0.0",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
