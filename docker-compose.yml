@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    networks:
+      - attendance_network
+
+  attendance_app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SECRET_KEY=your-secret-key-change-in-production
+      - BOT_TOKEN=${BOT_TOKEN}
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    depends_on:
+      - redis
+    volumes:
+      - ./attendance.db:/app/attendance.db
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - attendance_network
+
+volumes:
+  redis_data:
+
+networks:
+  attendance_network:
+    driver: bridge

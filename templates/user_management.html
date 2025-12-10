@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление пользователями - Система учета</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .nav {
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+        .nav a {
+            padding: 0.5rem 1rem;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .nav a:hover {
+            background: #0056b3;
+        }
+        .section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        .action-btn {
+            padding: 0.25rem 0.5rem;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .action-btn:hover {
+            background: #218838;
+        }
+        .delete-btn {
+            background: #dc3545;
+        }
+        .delete-btn:hover {
+            background: #c82333;
+        }
+        .status-active {
+            color: #28a745;
+        }
+        .status-inactive {
+            color: #dc3545;
+        }
+        .role-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .role-admin {
+            background: #dc3545;
+            color: white;
+        }
+        .role-manager {
+            background: #ffc107;
+            color: black;
+        }
+        .role-hr {
+            background: #17a2b8;
+            color: white;
+        }
+        .role-user {
+            background: #6c757d;
+            color: white;
+        }
+        .no-data {
+            text-align: center;
+            color: #666;
+            padding: 2rem;
+        }
+        .add-user-btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+        .add-user-btn:hover {
+            background: #218838;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>👥 Управление пользователями</h1>
+        </div>
+
+        <div class="nav">
+            <a href="/">Терминал</a>
+            <a href="/admin">Админ панель</a>
+            <a href="/analytics">Аналитика</a>
+            <a href="/logout">Выход</a>
+        </div>
+
+        <div class="section">
+            <h2>Пользователи системы</h2>
+            <a href="#" class="add-user-btn" onclick="alert('Функционал добавления пользователей будет реализован позже')">➕ Добавить пользователя</a>
+
+            {% if users %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Логин</th>
+                        <th>ФИО</th>
+                        <th>Роль</th>
+                        <th>Отдел</th>
+                        <th>Должность</th>
+                        <th>Статус</th>
+                        <th>Последний вход</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td>{{ user.username }}</td>
+                        <td>{{ user.full_name or 'Не указано' }}</td>
+                        <td>
+                            <span class="role-badge role-{{ user.role }}">
+                                {{ user.role|title }}
+                            </span>
+                        </td>
+                        <td>{{ user.department or 'Не указано' }}</td>
+                        <td>{{ user.position or 'Не указано' }}</td>
+                        <td>
+                            <span class="status-{{ 'active' if user.is_active else 'inactive' }}">
+                                {{ 'Активен' if user.is_active else 'Заблокирован' }}
+                            </span>
+                        </td>
+                        <td>{{ user.last_login or 'Никогда' }}</td>
+                        <td>
+                            <a href="#" class="action-btn" onclick="alert('Функционал редактирования будет реализован позже')">✏️</a>
+                            <a href="#" class="action-btn delete-btn" onclick="alert('Функционал удаления будет реализован позже')">🗑️</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-data">
+                <p>Пользователи не найдены</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <h2>Роли пользователей</h2>
+            {% if roles %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Название</th>
+                        <th>Отображаемое имя</th>
+                        <th>Описание</th>
+                        <th>Права доступа</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for role in roles %}
+                    <tr>
+                        <td>{{ role.name }}</td>
+                        <td>{{ role.display_name }}</td>
+                        <td>{{ role.description }}</td>
+                        <td>{{ role.permissions }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-data">
+                <p>Роли не найдены</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

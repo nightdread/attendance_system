@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ-панель - Система учета</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .nav {
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+        }
+        .nav a {
+            padding: 0.5rem 1rem;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .nav a:hover {
+            background: #0056b3;
+        }
+        .section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        .action-btn {
+            padding: 0.25rem 0.5rem;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .action-btn:hover {
+            background: #218838;
+        }
+        .no-data {
+            text-align: center;
+            color: #666;
+            padding: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Админ-панель системы учета времени</h1>
+        </div>
+
+        <div class="nav">
+            <a href="/terminal">Терминал</a>
+            <a href="/analytics">Аналитика</a>
+            <a href="/users">Пользователи</a>
+            <a href="/logout">Выход</a>
+        </div>
+
+        <div class="section">
+            <h2>Сейчас в офисе</h2>
+            {% if present_users %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>ФИО</th>
+                        <th>Локация</th>
+                        <th>Время прихода</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in present_users %}
+                    <tr>
+                        <td>{{ user.fio }}</td>
+                        <td>{{ user.location.replace('_', ' ').title() }}</td>
+                        <td>{{ user.ts[:19].replace('T', ' ') }}</td>
+                        <td>
+                            <a href="/admin/user/{{ user.user_id }}" class="action-btn">История</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-data">
+                В данный момент в офисе никого нет
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

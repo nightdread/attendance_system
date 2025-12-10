@@ -1,0 +1,93 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Database
+attendance.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Cookies and session files
+cookies.txt
+*.cookie
+
+# Cache
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+
+# Redis dump
+dump.rdb
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# System files
+.directory
+.Trash-*
+
+# Python specific
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/

@@ -1,0 +1,95 @@
+import os
+from typing import List
+
+# Security settings
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+
+# Database settings
+DATABASE_URL = "sqlite:///./attendance.db"
+
+# Telegram Bot settings
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8443606232:AAE4PwU7OtGgOkoKB2KhUvDkYFHBvwgTiJg")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "qr_uchet_bot")
+
+# Web terminal settings
+WEB_USERNAME = os.getenv("WEB_USERNAME", "admin")
+WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin123")
+
+# System is now unified - no location separation
+# All tokens and attendance are global
+
+# API settings
+API_HOST = "0.0.0.0"
+API_PORT = 8000
+
+# QR update interval (seconds)
+QR_UPDATE_INTERVAL = 5
+
+# Token settings
+TOKEN_LENGTH = 8
+
+# JWT settings
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
+JWT_ALGORITHM = "HS256"
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# User roles and permissions
+USER_ROLES = {
+    "admin": {
+        "name": "Администратор",
+        "permissions": ["all"],
+        "description": "Полный доступ ко всем функциям"
+    },
+    "manager": {
+        "name": "Менеджер",
+        "permissions": ["view_analytics", "manage_users", "view_reports"],
+        "description": "Управление пользователями и просмотр аналитики"
+    },
+    "hr": {
+        "name": "HR специалист",
+        "permissions": ["view_analytics", "manage_employees", "view_reports"],
+        "description": "Управление сотрудниками и отчетами"
+    },
+    "user": {
+        "name": "Сотрудник",
+        "permissions": ["check_attendance", "view_own_stats"],
+        "description": "Базовый доступ для отметки посещаемости"
+    }
+}
+
+DEFAULT_ROLE = "user"
+
+# Permission definitions
+PERMISSIONS = {
+    "all": "Полный доступ ко всем функциям",
+    "view_analytics": "Просмотр аналитики и отчетов",
+    "manage_users": "Управление пользователями",
+    "manage_employees": "Управление сотрудниками",
+    "view_reports": "Просмотр отчетов",
+    "check_attendance": "Отметка посещаемости",
+    "view_own_stats": "Просмотр собственной статистики",
+    "manage_tokens": "Управление QR токенами",
+    "system_admin": "Администрирование системы"
+}
+
+# API settings
+API_KEY = os.getenv("API_KEY")  # Optional API key for external access
+
+# Logging settings
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_TO_FILE = os.getenv("LOG_TO_FILE", "true").lower() == "true"
+LOG_MAX_SIZE = int(os.getenv("LOG_MAX_SIZE", "10485760"))  # 10MB default
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+
+# Redis settings
+REDIS_ENABLED = os.getenv("REDIS_ENABLED", "true").lower() == "true"
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}" if REDIS_PASSWORD else f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+
+# Cache TTL settings (in seconds)
+CACHE_TTL_TOKEN = int(os.getenv("CACHE_TTL_TOKEN", "300"))  # 5 minutes for tokens
+CACHE_TTL_ANALYTICS = int(os.getenv("CACHE_TTL_ANALYTICS", "600"))  # 10 minutes for analytics
+CACHE_TTL_USER = int(os.getenv("CACHE_TTL_USER", "1800"))  # 30 minutes for user data

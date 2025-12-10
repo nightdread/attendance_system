@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>История пользователя - {{ user.fio }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .nav {
+            margin-bottom: 2rem;
+        }
+        .nav a {
+            padding: 0.5rem 1rem;
+            background: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .nav a:hover {
+            background: #545b62;
+        }
+        .user-info {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .user-info h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .events-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+        }
+        .events-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        .action-in {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .action-out {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .no-data {
+            text-align: center;
+            color: #666;
+            padding: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>История пользователя</h1>
+        </div>
+
+        <div class="nav">
+            <a href="/admin">← Назад к админ-панели</a>
+        </div>
+
+        <div class="user-info">
+            <h2>{{ user.fio }}</h2>
+            <p><strong>Telegram ID:</strong> {{ user.tg_user_id }}</p>
+            {% if user.username %}
+            <p><strong>Username:</strong> @{{ user.username }}</p>
+            {% endif %}
+            <p><strong>Дата регистрации:</strong> {{ user.created_at[:19].replace('T', ' ') }}</p>
+        </div>
+
+        <div class="events-section">
+            <h3>История событий</h3>
+            {% if events %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Дата и время</th>
+                        <th>Локация</th>
+                        <th>Действие</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in events %}
+                    <tr>
+                        <td>{{ event.ts[:19].replace('T', ' ') }}</td>
+                        <td>{{ event.location.replace('_', ' ').title() }}</td>
+                        <td class="action-{{ event.action }}">
+                            {% if event.action == 'in' %}Пришёл{% else %}Ушёл{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-data">
+                У пользователя пока нет событий
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
