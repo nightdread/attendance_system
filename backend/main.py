@@ -21,7 +21,6 @@ from config import (
 from database import Database
 from auth.jwt_handler import JWTHandler
 from utils.logger import log_error, log_request, log_auth_event
-from auth.middleware import require_authenticated, require_admin, require_permission
 
 app = FastAPI(title="Attendance System API")
 
@@ -119,12 +118,12 @@ def build_terminal_context(request: Request, db: Database) -> dict:
         pass
 
     return {
-        "request": request,
-        "token": token,
-        "url": url,
-        "update_interval": QR_UPDATE_INTERVAL * 1000,
-        "user_info": user_info
-    }
+            "request": request,
+            "token": token,
+            "url": url,
+            "update_interval": QR_UPDATE_INTERVAL * 1000,
+            "user_info": user_info
+        }
 
 
 @app.get("/api/active_token")
@@ -138,16 +137,6 @@ async def get_active_token(request: Request, db: Database = Depends(get_db)):
     token = token_data['token'] if token_data else db.create_token()
     url = f"https://t.me/{BOT_USERNAME}?start={token}"
     return {"token": token, "url": url}
-
-# Debug endpoint
-@app.get("/debug")
-async def debug():
-    try:
-        db = Database(str(DB_PATH))
-        user = db.get_web_user_by_username("admin")
-        return {"user_found": user is not None, "user_data": user}
-    except Exception as e:
-        return {"error": str(e)}
 
 # Web terminal routes
 @app.get("/", response_class=HTMLResponse)

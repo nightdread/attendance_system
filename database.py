@@ -1,11 +1,8 @@
 import sqlite3
-import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import secrets
-
-from config.config import DATABASE_URL
 from utils.cache import (
     get_cached_token, set_cached_token, invalidate_token,
     get_cached_analytics_daily, set_cached_analytics_daily,
