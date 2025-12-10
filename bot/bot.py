@@ -18,13 +18,13 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, current_dir)
 
-from config.config import BOT_TOKEN, BOT_USERNAME
+from config.config import BOT_TOKEN, BOT_USERNAME, DB_PATH
 from database import Database
 from utils.logger import bot_logger as logger
 
 class AttendanceBot:
     def __init__(self):
-        self.db = Database(os.path.join(os.path.dirname(__file__), "../attendance.db"))
+        self.db = Database(str(DB_PATH))
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""

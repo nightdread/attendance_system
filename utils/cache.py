@@ -17,6 +17,7 @@ class Cache:
     def __init__(self):
         self.redis_client = None
         self.memory_cache = {}  # Fallback in-memory cache
+        self.memory_ttl = {}
 
         if REDIS_ENABLED:
             try:
@@ -48,6 +49,18 @@ class Cache:
             return None
         return pickle.loads(value)
 
+    def _purge_expired_memory(self, key: str):
+        """Remove expired key from memory cache."""
+        if key in self.memory_ttl:
+            expires_at = self.memory_ttl.get(key)
+            if expires_at and expires_at < self._current_ts():
+                self.memory_cache.pop(key, None)
+                self.memory_ttl.pop(key, None)
+
+    def _current_ts(self) -> float:
+        import time
+        return time.time()
+
     def get(self, key: str) -> Any:
         """Get value from cache"""
         try:
@@ -57,6 +70,7 @@ class Cache:
                     return self._deserialize(value)
             else:
                 # Memory cache fallback
+                self._purge_expired_memory(key)
                 return self.memory_cache.get(key)
         except Exception as e:
             logger.error(f"Cache get error for key {key}: {e}")
@@ -71,8 +85,10 @@ class Cache:
             if self.redis_client:
                 return bool(self.redis_client.set(key, serialized_value, ex=ttl))
             else:
-                # Memory cache fallback (no TTL support)
+                # Memory cache fallback with simple TTL
                 self.memory_cache[key] = value
+                if ttl:
+                    self.memory_ttl[key] = self._current_ts() + ttl
                 return True
         except Exception as e:
             logger.error(f"Cache set error for key {key}: {e}")

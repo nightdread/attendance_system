@@ -16,21 +16,23 @@ sys.path.insert(0, project_root)
 
 from config import (
     BOT_USERNAME, WEB_USERNAME, WEB_PASSWORD,
-    API_HOST, API_PORT, QR_UPDATE_INTERVAL, SECRET_KEY, API_KEY
+    API_HOST, API_PORT, QR_UPDATE_INTERVAL, SECRET_KEY, SESSION_SECRET_KEY, API_KEY, DB_PATH
 )
 from database import Database
 from auth.jwt_handler import JWTHandler
 from utils.logger import log_error, log_request, log_auth_event
+from utils.cache import cache
 
 app = FastAPI(title="Attendance System API")
 
-# Add session middleware (use project secret)
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+# Add session middleware (use dedicated session secret, defaulting to SECRET_KEY)
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 
-# Simple in-memory login rate limiter (per IP)
-LOGIN_ATTEMPTS = defaultdict(list)
+# Login rate limiter (Redis + fallback memory)
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_WINDOW_SEC = 300  # 5 minutes
+LOGIN_BLOCK_SEC = 900   # block 15 minutes
+LOGIN_ATTEMPTS = defaultdict(list)
 
 
 def authorize_request(
@@ -80,7 +82,6 @@ def authorize_request(
 # Resolve paths that work both locally and inside Docker
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"
-DB_PATH = BASE_DIR / "attendance.db"
 
 # Templates
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -121,6 +122,7 @@ def build_terminal_context(request: Request, db: Database) -> dict:
             "request": request,
             "token": token,
             "url": url,
+            "bot_url": url,
             "update_interval": QR_UPDATE_INTERVAL * 1000,
             "user_info": user_info
         }
@@ -136,7 +138,7 @@ async def get_active_token(request: Request, db: Database = Depends(get_db)):
     token_data = db.get_active_token()
     token = token_data['token'] if token_data else db.create_token()
     url = f"https://t.me/{BOT_USERNAME}?start={token}"
-    return {"token": token, "url": url}
+    return {"token": token, "url": url, "bot_url": url}
 
 # Web terminal routes
 @app.get("/", response_class=HTMLResponse)
@@ -161,23 +163,62 @@ async def login(
     # Rate limit by client IP
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
-    attempts = LOGIN_ATTEMPTS[client_ip]
-    LOGIN_ATTEMPTS[client_ip] = [t for t in attempts if now - t < LOGIN_WINDOW_SEC]
-    if len(LOGIN_ATTEMPTS[client_ip]) >= MAX_LOGIN_ATTEMPTS:
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "error": "Слишком много попыток. Попробуйте позже."
-            }
-        )
+
+    # Redis-based limiter (fallback to memory)
+    try:
+        if cache.redis_client:
+            key_block = f"login:block:{client_ip}"
+            key_counter = f"login:count:{client_ip}"
+
+            if cache.redis_client.exists(key_block):
+                return templates.TemplateResponse(
+                    "login.html",
+                    {
+                        "request": request,
+                        "error": "Слишком много попыток. Попробуйте позже."
+                    }
+                )
+
+            count = cache.redis_client.incr(key_counter)
+            if count == 1:
+                cache.redis_client.expire(key_counter, LOGIN_WINDOW_SEC)
+            if count > MAX_LOGIN_ATTEMPTS:
+                cache.redis_client.set(key_block, 1, ex=LOGIN_BLOCK_SEC)
+                return templates.TemplateResponse(
+                    "login.html",
+                    {
+                        "request": request,
+                        "error": "Слишком много попыток. Попробуйте позже."
+                    }
+                )
+        else:
+            attempts = LOGIN_ATTEMPTS[client_ip]
+            LOGIN_ATTEMPTS[client_ip] = [t for t in attempts if now - t < LOGIN_WINDOW_SEC]
+            if len(LOGIN_ATTEMPTS[client_ip]) >= MAX_LOGIN_ATTEMPTS:
+                return templates.TemplateResponse(
+                    "login.html",
+                    {
+                        "request": request,
+                        "error": "Слишком много попыток. Попробуйте позже."
+                    }
+                )
+    except Exception:
+        # Fail-open to avoid breaking login, but still allow core flow
+        pass
 
     # Попытка логина через API
     try:
         user = db.get_web_user_by_username(username)
         if user and JWTHandler.verify_password(password, user["password_hash"]):
             # Сброс счетчика попыток при успехе
-            LOGIN_ATTEMPTS.pop(client_ip, None)
+            try:
+                if cache.redis_client:
+                    cache.redis_client.delete(f"login:count:{client_ip}")
+                    cache.redis_client.delete(f"login:block:{client_ip}")
+                else:
+                    LOGIN_ATTEMPTS.pop(client_ip, None)
+            except Exception:
+                pass
             # Генерируем JWT токен
             access_token = JWTHandler.create_access_token(
                 data={"sub": username, "role": user.get("role", "user")}
@@ -224,14 +265,21 @@ async def admin_page(request: Request, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=302)
 
+    user_role = request.session.get("user_role", "user")
+
     # Get currently present users
     present_users = db.get_currently_present()
+
+    initial_creds = None
+    if user_role in ["admin", "manager", "hr"]:
+        initial_creds = db.consume_initial_credentials()
 
     return templates.TemplateResponse(
         "admin.html",
         {
             "request": request,
-            "present_users": present_users
+            "present_users": present_users,
+            "initial_creds": initial_creds
         }
     )
 

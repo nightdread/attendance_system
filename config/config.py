@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List
 
 
@@ -11,9 +12,14 @@ def _require_env(name: str, default: str = None) -> str:
 
 # Security settings (must be provided via env)
 SECRET_KEY = _require_env("SECRET_KEY")
+# Session secret (can be rotated independently; defaults to SECRET_KEY)
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", SECRET_KEY)
+
+# Paths
+BASE_DIR = Path(__file__).parent.parent
 
 # Database settings
-DATABASE_URL = "sqlite:///./attendance.db"
+DB_PATH = Path(os.getenv("DB_PATH", BASE_DIR / "attendance.db"))
 
 # Telegram Bot settings (must be provided via env)
 BOT_TOKEN = _require_env("BOT_TOKEN")
@@ -36,10 +42,12 @@ QR_UPDATE_INTERVAL = 5
 # Token settings
 TOKEN_LENGTH = 8
 
-# JWT settings
+# JWT settings (support rotation: current + optional previous)
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
+JWT_SECRET_KEY_PREV = os.getenv("JWT_SECRET_KEY_PREV")
+JWT_SECRET_KEYS = [k for k in [JWT_SECRET_KEY, JWT_SECRET_KEY_PREV] if k]
 JWT_ALGORITHM = "HS256"
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 30
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 # User roles and permissions
 USER_ROLES = {

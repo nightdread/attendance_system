@@ -18,6 +18,7 @@ services:
       - REDIS_ENABLED=true
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DB_PATH=${DB_PATH:-/app/attendance.db}
       - SECRET_KEY=${SECRET_KEY}
       - BOT_TOKEN=${BOT_TOKEN}
       - BOT_USERNAME=${BOT_USERNAME}
@@ -42,6 +43,7 @@ services:
       - BOT_USERNAME=${BOT_USERNAME}
       - WEB_PASSWORD=${WEB_PASSWORD}
       - API_KEY=${API_KEY}
+      - DB_PATH=${DB_PATH:-/app/attendance.db}
     depends_on:
       - attendance_app
     command: ["python", "bot/bot.py"]

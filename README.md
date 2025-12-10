@@ -44,11 +44,15 @@
 3. Обязательные переменные окружения
    ```bash
    export SECRET_KEY="your-secret"
+   export SESSION_SECRET_KEY="your-session-secret"   # опционально, иначе = SECRET_KEY
+   export DB_PATH="/app/attendance.db"               # опционально, путь до файла БД
    export BOT_TOKEN="your-telegram-bot-token"
    export BOT_USERNAME="your_bot_username"
    export WEB_PASSWORD="strong-admin-password"
-   # опционально: export API_KEY="your_api_key"    # для защиты API
+   # опционально: export API_KEY="your_api_key"                  # для защиты API
    # опционально: export REDIS_ENABLED=true REDIS_HOST=localhost REDIS_PORT=6379
+   # опционально: export JWT_SECRET_KEY="your-jwt-secret"       # иначе = SECRET_KEY
+   # опционально: export JWT_SECRET_KEY_PREV="previous-jwt-key" # для плавной ротации
    ```
 4. Запуск
    - Backend:
@@ -111,6 +115,30 @@ GET /api/active_token
 - `/terminal` — публичный терминал с QR-кодом (сессия помечается для вызова `/api/active_token`)
 - `/admin` — админ-панель (требует логин)
 - `/logout` — выход
+
+## Хранение БД вне контейнера
+- Переменная `DB_PATH` задаёт путь к файлу SQLite внутри контейнера (по умолчанию `/app/attendance.db`).
+- Чтобы хранить БД на хосте, примонтируйте файл/директорию и задайте `DB_PATH`:
+  ```yaml
+  # docker-compose.yml (пример)
+  services:
+    attendance_app:
+      environment:
+        - DB_PATH=/data/attendance.db
+      volumes:
+        - ./data:/data        # каталог на хосте
+    attendance_bot:
+      environment:
+        - DB_PATH=/data/attendance.db
+      volumes:
+        - ./data:/data
+  ```
+- Если БД уже существует на хосте, укажите на неё путь в `DB_PATH` и примонтируйте соответствующий файл/каталог.
+- Для внешних СУБД (PostgreSQL/MySQL) требуется доработка кода (сейчас прямое использование `sqlite3`).
+
+## Секреты и ротация
+- Сессии: `SESSION_SECRET_KEY` (по умолчанию `SECRET_KEY`). При смене ключа старые сессии станут невалидны — планируйте окна деплоя.
+- JWT: `JWT_SECRET_KEY` (текущий) + `JWT_SECRET_KEY_PREV` (предыдущий). Токены создаются текущим ключом, верификация принимает оба — позволяет безболезненно обновить ключ и перевыпустить токены.
 
 ### Дефолтные пользователи (создаются автоматически на пустой БД)
 - admin (role=admin)

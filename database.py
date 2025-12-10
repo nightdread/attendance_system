@@ -18,6 +18,7 @@ from config.config import CACHE_TTL_USER
 class Database:
     def __init__(self, db_path: str = "attendance.db"):
         self.db_path = db_path
+        self.initial_credentials = []  # runtime-only: show once in admin UI
         self.init_db()
 
     @contextmanager
@@ -55,6 +56,14 @@ class Database:
                     location   TEXT NOT NULL,
                     action     TEXT NOT NULL,
                     ts         TEXT NOT NULL
+                )
+            ''')
+
+            # Meta table (key/value)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS system_meta (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT
                 )
             ''')
 
@@ -159,13 +168,24 @@ class Database:
                     )
                     creds.append((username, password_plain, role))
 
+                # Store for one-time display (not persisted)
+                self.initial_credentials = creds
+
                 # Print generated credentials to stdout (not stored in container)
                 print("[INIT] Default users created (empty DB detected):")
                 print(f"[INIT] Generated at: {now}")
                 for u, p, r in creds:
                     print(f"[INIT] user={u} role={r} password={p}")
+            else:
+                self.initial_credentials = []
 
             conn.commit()
+
+    def consume_initial_credentials(self):
+        """Return and clear one-time initial credentials."""
+        creds = self.initial_credentials
+        self.initial_credentials = []
+        return creds
 
     # People operations
     def create_person(self, tg_user_id: int, fio: str, username: Optional[str] = None) -> int:

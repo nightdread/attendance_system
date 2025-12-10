@@ -86,6 +86,30 @@
         .admin-btn:active {
             transform: translateY(0);
         }
+        .copy-btn {
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            padding: 0.45rem 0.8rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.15s ease;
+            margin-left: 0.6rem;
+        }
+        .copy-btn:hover {
+            background: rgba(14,165,233,0.1);
+        }
+        .copy-btn:active {
+            transform: translateY(0);
+        }
+        .token-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            flex-wrap: wrap;
+            word-break: break-all;
+        }
     </style>
 </head>
 <body>
@@ -97,7 +121,14 @@
                 <div id="qrcode"></div>
             </div>
             <div class="token-info">
-                Токен: <span id="current-token">Загрузка...</span><br>
+                <div class="token-row">
+                    Токен: <span id="current-token">Загрузка...</span>
+                    <button class="copy-btn" id="copy-token-btn">Скопировать</button>
+                </div>
+                <div class="token-row" style="margin-top: 0.35rem;">
+                    Ссылка на бота: <span id="bot-link">-</span>
+                    <button class="copy-btn" id="copy-link-btn">Скопировать</button>
+                </div>
                 Обновлено: <span id="last-update">-</span>
             </div>
         </div>
@@ -111,6 +142,7 @@
         let currentToken = null;
         let qrCode = null;
         let updateInterval = {{ update_interval }};
+        let botUrl = null;
 
         function updateQRCode() {
             document.getElementById('status').textContent = 'Обновление QR-кода...';
@@ -124,6 +156,7 @@
                     }
                     const newToken = data.token;
                     const url = data.url;
+                    botUrl = data.bot_url || url;
 
                     if (newToken !== currentToken) {
                         currentToken = newToken;
@@ -143,6 +176,7 @@
                     }
 
                     document.getElementById('current-token').textContent = newToken;
+                    document.getElementById('bot-link').textContent = botUrl;
                     document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
                     document.getElementById('status').textContent = 'QR-код готов для сканирования';
                 })
@@ -157,6 +191,19 @@
 
         // Set up periodic updates
         setInterval(updateQRCode, updateInterval);
+
+        function copyText(text) {
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                document.getElementById('status').textContent = 'Скопировано';
+                setTimeout(() => document.getElementById('status').textContent = 'QR-код готов для сканирования', 1500);
+            }).catch(() => {
+                document.getElementById('status').textContent = 'Не удалось скопировать';
+            });
+        }
+
+        document.getElementById('copy-token-btn').addEventListener('click', () => copyText(currentToken));
+        document.getElementById('copy-link-btn').addEventListener('click', () => copyText(botUrl));
     </script>
 </body>
 </html>
