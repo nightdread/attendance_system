@@ -5,9 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Админ-панель - Система учета</title>
     <style>
+        :root {
+            --bg: #0f172a;
+            --card: #111827;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --accent: #0ea5e9;
+            --accent-hover: #0284c7;
+            --border: #1f2937;
+            --shadow: 0 10px 30px rgba(0,0,0,0.35);
+            --success: #22c55e;
+        }
         body {
             font-family: Arial, sans-serif;
-            background-color: #f8f9fa;
+            background-color: var(--bg);
+            color: var(--text);
             margin: 0;
             padding: 20px;
         }
@@ -26,24 +38,28 @@
         }
         .nav a {
             padding: 0.5rem 1rem;
-            background: #007bff;
+            background: var(--accent);
             color: white;
             text-decoration: none;
             border-radius: 4px;
+            box-shadow: 0 4px 10px rgba(14,165,233,0.25);
+            transition: background 0.15s ease, transform 0.1s ease;
         }
         .nav a:hover {
-            background: #0056b3;
+            background: var(--accent-hover);
+            transform: translateY(-1px);
         }
         .section {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: var(--card);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
             padding: 1.5rem;
+            border: 1px solid var(--border);
             margin-bottom: 2rem;
         }
         .section h2 {
             margin-top: 0;
-            color: #333;
+            color: var(--text);
         }
         table {
             width: 100%;
@@ -53,26 +69,28 @@
         th, td {
             padding: 0.75rem;
             text-align: left;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid var(--border);
         }
         th {
-            background-color: #f8f9fa;
+            background-color: #0b1220;
             font-weight: 600;
+            color: var(--text);
         }
         .action-btn {
             padding: 0.25rem 0.5rem;
-            background: #28a745;
+            background: var(--success);
             color: white;
             text-decoration: none;
             border-radius: 4px;
             font-size: 0.9rem;
+            box-shadow: 0 3px 8px rgba(34,197,94,0.25);
         }
         .action-btn:hover {
-            background: #218838;
+            background: #16a34a;
         }
         .no-data {
             text-align: center;
-            color: #666;
+            color: var(--muted);
             padding: 2rem;
         }
     </style>

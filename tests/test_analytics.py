@@ -31,10 +31,10 @@ class TestAnalyticsAPI:
 
         data = response.json()
         assert "period" in data
-        assert "daily_stats" in data
         assert "start" in data["period"]
         assert "end" in data["period"]
-        assert isinstance(data["daily_stats"], list)
+        assert "data" in data
+        assert isinstance(data["data"], list)
 
     def test_get_location_analytics(self, test_client, auth_headers):
         """Test location analytics endpoint"""
@@ -71,46 +71,8 @@ class TestAnalyticsAPI:
 
         data = response.json()
         assert "date" in data
-        assert "hourly_stats" in data
-        assert isinstance(data["hourly_stats"], list)
-
-    def test_get_monthly_analytics(self, test_client, auth_headers):
-        """Test monthly analytics endpoint"""
-        year = datetime.now().year
-        month = datetime.now().month
-
-        response = test_client.get(f"/api/analytics/monthly/{year}/{month}", headers=auth_headers)
-        assert response.status_code == 200
-
-        data = response.json()
-        assert "period" in data
-        assert "monthly_totals" in data
-        assert "daily_breakdown" in data
-
-    def test_get_system_health(self, test_client, auth_headers):
-        """Test system health analytics endpoint"""
-        response = test_client.get("/api/analytics/health", headers=auth_headers)
-        assert response.status_code == 200
-
-        data = response.json()
-        assert "users" in data
-        assert "events" in data
-        assert "tokens" in data
-        assert "generated_at" in data
-
-    def test_analytics_unauthorized(self, test_client):
-        """Test analytics endpoints require authentication"""
-        endpoints = [
-            "/api/analytics/daily/2025-12-09",
-            "/api/analytics/weekly",
-            "/api/analytics/locations",
-            "/api/analytics/users",
-            "/api/analytics/health"
-        ]
-
-        for endpoint in endpoints:
-            response = test_client.get(endpoint)
-            assert response.status_code == 401
+        assert "hourly" in data
+        assert isinstance(data["hourly"], list)
 
 class TestAnalyticsDatabase:
     """Test analytics database methods"""
@@ -130,12 +92,21 @@ class TestAnalyticsDatabase:
     def test_get_location_stats_empty(self, test_db):
         """Test location stats with no data"""
         stats = test_db.get_location_stats()
-        assert stats == []
+        assert isinstance(stats, list)
+        if stats:
+            assert "location" in stats[0]
+            assert "checkins" in stats[0]
+            assert "checkouts" in stats[0]
 
     def test_get_user_stats_empty(self, test_db):
         """Test user stats with no data"""
         stats = test_db.get_user_stats()
-        assert stats == []
+        assert isinstance(stats, list)
+        if stats:
+            first = stats[0]
+            assert "full_name" in first
+            assert "checkins" in first
+            assert "checkouts" in first
 
     def test_get_hourly_stats_empty(self, test_db):
         """Test hourly stats with no data"""

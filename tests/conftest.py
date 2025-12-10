@@ -1,3 +1,10 @@
+import os
+
+# Ensure required env vars for tests
+os.environ.setdefault("SECRET_KEY", "test-secret-key")
+os.environ.setdefault("BOT_TOKEN", "test-bot-token")
+os.environ.setdefault("BOT_USERNAME", "test_bot")
+os.environ.setdefault("WEB_PASSWORD", "test-password")
 """
 Pytest configuration and fixtures
 """
@@ -8,10 +15,13 @@ import tempfile
 import shutil
 import sys
 from pathlib import Path
-from fastapi.testclient import TestClient
 
-# Add current directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Add project root to sys.path before local imports
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, PROJECT_ROOT)
+
+from fastapi.testclient import TestClient  # noqa: E402
+from database import Database  # noqa: E402
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -45,20 +55,14 @@ def test_db(test_db_path):
 @pytest.fixture
 def test_client():
     """Create test client for FastAPI app"""
-    from main import app
+    from backend.main import app
     return TestClient(app)
 
 @pytest.fixture
 def auth_headers(test_client):
     """Get authentication headers for admin user"""
-    # Login to get token
-    response = test_client.post("/api/auth/login", json={
-        "username": "admin",
-        "password": "admin123"
-    })
-    assert response.status_code == 200
-
-    token = response.json()["access_token"]
+    from auth.jwt_handler import JWTHandler
+    token = JWTHandler.create_access_token(data={"sub": "admin", "role": "admin"})
     return {"Authorization": f"Bearer {token}"}
 
 @pytest.fixture

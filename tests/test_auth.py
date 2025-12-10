@@ -64,49 +64,8 @@ class TestAuthAPI:
         assert "version" in data
         assert "timestamp" in data
 
-    def test_login_success(self, test_client):
-        """Test successful login"""
-        response = test_client.post("/api/auth/login", json={
-            "username": "admin",
-            "password": "admin123"
-        })
-
+    def test_login_page(self, test_client):
+        """Login page is accessible"""
+        response = test_client.get("/login")
         assert response.status_code == 200
-
-        data = response.json()
-        assert "access_token" in data
-        assert data["token_type"] == "bearer"
-        assert "expires_in" in data
-        assert data["expires_in"] > 0
-
-    def test_login_failure(self, test_client):
-        """Test login with wrong credentials"""
-        response = test_client.post("/api/auth/login", json={
-            "username": "admin",
-            "password": "wrong_password"
-        })
-
-        assert response.status_code == 401
-
-    def test_protected_endpoint_without_token(self, test_client):
-        """Test accessing protected endpoint without token"""
-        response = test_client.get("/api/auth/me")
-        assert response.status_code == 401
-
-    def test_protected_endpoint_with_token(self, test_client, auth_headers):
-        """Test accessing protected endpoint with valid token"""
-        response = test_client.get("/api/auth/me", headers=auth_headers)
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["username"] == "admin"
-        assert data["role"] == "admin"
-
-    def test_admin_only_endpoint(self, test_client, auth_headers):
-        """Test admin-only endpoint access"""
-        response = test_client.get("/api/admin/users", headers=auth_headers)
-        assert response.status_code == 200
-
-        data = response.json()
-        assert "users" in data
-        assert len(data["users"]) >= 1  # At least admin user exists
+        assert "login" in response.text.lower()

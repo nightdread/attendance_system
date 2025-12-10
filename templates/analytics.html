@@ -6,9 +6,23 @@
     <title>Аналитика - Система учета</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        :root {
+            --bg: #0f172a;
+            --card: #111827;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --accent: #0ea5e9;
+            --accent-hover: #0284c7;
+            --border: #1f2937;
+            --shadow: 0 10px 30px rgba(0,0,0,0.35);
+            --success: #22c55e;
+            --warn: #f59e0b;
+            --danger: #ef4444;
+        }
         body {
             font-family: Arial, sans-serif;
-            background-color: #f8f9fa;
+            background-color: var(--bg);
+            color: var(--text);
             margin: 0;
             padding: 20px;
         }
@@ -29,25 +43,29 @@
         }
         .nav a {
             padding: 0.5rem 1rem;
-            background: #007bff;
+            background: var(--accent);
             color: white;
             text-decoration: none;
             border-radius: 4px;
+            box-shadow: 0 4px 10px rgba(14,165,233,0.25);
+            transition: background 0.15s ease, transform 0.1s ease;
         }
         .nav a:hover {
-            background: #0056b3;
+            background: var(--accent-hover);
+            transform: translateY(-1px);
         }
         .section {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: var(--card);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
             padding: 1.5rem;
+            border: 1px solid var(--border);
             margin-bottom: 2rem;
         }
         .section h2 {
             margin-top: 0;
-            color: #333;
-            border-bottom: 2px solid #007bff;
+            color: var(--text);
+            border-bottom: 2px solid var(--accent);
             padding-bottom: 0.5rem;
         }
         .stats-grid {
@@ -57,12 +75,12 @@
             margin-bottom: 2rem;
         }
         .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
             color: white;
             padding: 1.5rem;
-            border-radius: 8px;
+            border-radius: 10px;
             text-align: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 6px 16px rgba(14,165,233,0.3);
         }
         .stat-value {
             font-size: 2.5rem;
@@ -93,46 +111,48 @@
         th, td {
             padding: 0.75rem;
             text-align: left;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
         }
         th {
-            background-color: #f8f9fa;
+            background-color: #0b1220;
             font-weight: 600;
         }
         .top-worker {
-            background: #fff3cd;
+            background: rgba(14,165,233,0.08);
         }
         .department-card {
-            background: #f8f9fa;
+            background: #0b1220;
             padding: 1rem;
-            border-radius: 4px;
+            border-radius: 8px;
             margin-bottom: 0.5rem;
+            border: 1px solid var(--border);
         }
         .progress-bar {
-            background: #e9ecef;
+            background: #1f2937;
             border-radius: 4px;
             height: 8px;
             margin-top: 0.5rem;
         }
         .progress-fill {
-            background: #007bff;
+            background: var(--accent);
             height: 100%;
             border-radius: 4px;
         }
         .no-data {
             text-align: center;
-            color: #666;
+            color: var(--muted);
             padding: 3rem;
             font-style: italic;
         }
         .metric-positive {
-            color: #28a745;
+            color: var(--success);
         }
         .metric-neutral {
-            color: #6c757d;
+            color: var(--muted);
         }
         .metric-highlight {
-            background: #fff3cd;
+            background: rgba(14,165,233,0.08);
             padding: 0.25rem 0.5rem;
             border-radius: 4px;
         }

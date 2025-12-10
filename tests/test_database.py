@@ -48,10 +48,8 @@ class TestDatabase:
 
     def test_token_operations(self, test_db):
         """Test token generation and validation"""
-        location = "office_main"
-
         # Create token
-        token = test_db.create_token(location)
+        token = test_db.create_token()
         assert token is not None
         assert len(token) > 0
 
@@ -61,7 +59,7 @@ class TestDatabase:
 
         # Get token location
         token_location = test_db.get_token_location(token)
-        assert token_location == location
+        assert token_location == "global"
 
         # Mark token as used
         test_db.mark_token_used(token)

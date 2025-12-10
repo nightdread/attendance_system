@@ -1,19 +1,27 @@
 import os
 from typing import List
 
-# Security settings
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+
+def _require_env(name: str, default: str = None) -> str:
+    """Fetch required env var or fail fast."""
+    value = os.getenv(name, default)
+    if not value or value.strip() == "" or "your-secret-key" in value:
+        raise ValueError(f"Environment variable {name} is required")
+    return value
+
+# Security settings (must be provided via env)
+SECRET_KEY = _require_env("SECRET_KEY")
 
 # Database settings
 DATABASE_URL = "sqlite:///./attendance.db"
 
-# Telegram Bot settings
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8443606232:AAE4PwU7OtGgOkoKB2KhUvDkYFHBvwgTiJg")
-BOT_USERNAME = os.getenv("BOT_USERNAME", "qr_uchet_bot")
+# Telegram Bot settings (must be provided via env)
+BOT_TOKEN = _require_env("BOT_TOKEN")
+BOT_USERNAME = _require_env("BOT_USERNAME")
 
-# Web terminal settings
+# Web terminal settings (пароль обязателен, логин по умолчанию admin)
 WEB_USERNAME = os.getenv("WEB_USERNAME", "admin")
-WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin123")
+WEB_PASSWORD = _require_env("WEB_PASSWORD")
 
 # System is now unified - no location separation
 # All tokens and attendance are global

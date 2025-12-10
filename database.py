@@ -119,6 +119,11 @@ class Database:
                 )
             ''')
 
+            # Useful indexes
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_user_ts ON events (user_id, ts)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tokens_used_created ON tokens (used, created_at)")
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_users_username ON web_users (username)")
+
             # Create default roles
             from config.config import USER_ROLES
             import json
@@ -133,17 +138,35 @@ class Database:
                          json.dumps(role_data["permissions"]), 1, now)
                     )
 
-            # Create default admin user if not exists
-            cursor.execute("SELECT COUNT(*) FROM web_users WHERE username = 'admin'")
-            if cursor.fetchone()[0] == 0:
+            # Create default users if DB is empty
+            cursor.execute("SELECT COUNT(*) FROM web_users")
+            has_users = cursor.fetchone()[0] > 0
+            if not has_users:
                 from auth.jwt_handler import JWTHandler
-                admin_password_hash = JWTHandler.get_password_hash("admin123")
+
                 now = datetime.utcnow().isoformat()
-                admin_permissions = json.dumps(USER_ROLES["admin"]["permissions"])
-                cursor.execute(
-                    "INSERT INTO web_users (username, password_hash, full_name, role, permissions, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    ("admin", admin_password_hash, "Administrator", "admin", admin_permissions, now)
-                )
+                defaults = [
+                    ("admin", "Administrator", "admin"),
+                    ("manager", "Manager User", "manager"),
+                    ("hr", "HR User", "hr"),
+                ]
+
+                creds = []
+                for username, full_name, role in defaults:
+                    password_plain = secrets.token_urlsafe(10)
+                    password_hash = JWTHandler.get_password_hash(password_plain)
+                    permissions = json.dumps(USER_ROLES[role]["permissions"])
+                    cursor.execute(
+                        "INSERT INTO web_users (username, password_hash, full_name, role, permissions, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        (username, password_hash, full_name, role, permissions, now)
+                    )
+                    creds.append((username, password_plain, role))
+
+                # Print generated credentials to stdout (not stored in container)
+                print("[INIT] Default users created (empty DB detected):")
+                print(f"[INIT] Generated at: {now}")
+                for u, p, r in creds:
+                    print(f"[INIT] user={u} role={r} password={p}")
 
             conn.commit()
 
@@ -215,7 +238,6 @@ class Database:
                 invalidate_token(token)
 
             return success
-            return cursor.rowcount > 0
 
     def get_token_location(self, token: str) -> Optional[str]:
         """Get location for token"""

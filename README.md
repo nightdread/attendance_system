@@ -26,68 +26,49 @@
 - **Database**: SQLite (файл `attendance.db`)
 - **Authentication**: JWT tokens
 
-## Установка
+## Установка и запуск (локально, без Docker)
 
-1. **Клонируйте репозиторий**
+1. Клонирование
    ```bash
    git clone <repository-url>
-   cd attendance-system
+   cd attendance_system
    ```
-
-2. **Установите зависимости**
+2. Виртуальное окружение и зависимости
    ```bash
+   python -m venv .venv
+   source .venv/bin/activate
    pip install -r requirements.txt
    ```
-
-3. **Настройте конфигурацию**
-
-   Отредактируйте `config/config.py`:
-   ```python
-   BOT_TOKEN = "ВАШ_ТОКЕН_БОТА_ТЕЛЕГРАМ"
-   BOT_USERNAME = "username_вашего_бота"
-   WEB_USERNAME = "admin"  # логин для веб-терминала
-   WEB_PASSWORD = "ваш_пароль"
+3. Обязательные переменные окружения
+   ```bash
+   export SECRET_KEY="your-secret"
+   export BOT_TOKEN="your-telegram-bot-token"
+   export BOT_USERNAME="your_bot_username"
+   export WEB_PASSWORD="strong-admin-password"
+   # опционально: export API_KEY="your_api_key"    # для защиты API
+   # опционально: export REDIS_ENABLED=true REDIS_HOST=localhost REDIS_PORT=6379
    ```
+4. Запуск
+   - Backend:
+     ```bash
+     source .venv/bin/activate
+     python backend/main.py
+     ```
+   - Бот (в отдельном терминале):
+     ```bash
+     source .venv/bin/activate
+     python bot/bot.py
+     ```
+   Приложение: `http://localhost:8000`
 
-## Запуск
-
-### Вариант 1: Docker (рекомендуется)
-
-#### Запуск с Redis кэшированием:
-```bash
-# Установите BOT_TOKEN в переменные окружения
-export BOT_TOKEN="your_telegram_bot_token"
-
-# Запустите систему
-docker-compose up -d
-```
-
-#### Или запустите только приложение:
-```bash
-docker build -t attendance-system .
-docker run -p 8000:8000 -v $(pwd)/attendance.db:/app/attendance.db attendance-system
-```
-
-### Вариант 2: Локальный запуск
-
-#### 1. Установка зависимостей
-```bash
-pip install -r requirements.txt
-```
-
-#### 2. Конфигурация Redis (опционально)
-```bash
-export REDIS_ENABLED=true
-export REDIS_HOST=localhost
-export REDIS_PORT=6379
-```
-
-#### 3. Запуск системы
-```bash
-python run.py
-```
-
-Приложение будет доступно на `http://localhost:8000`
+## Запуск через Docker (при необходимости)
+- Установите переменные окружения (как выше), при использовании `docker-compose` добавьте их в `.env`.
+- Команды:
+  ```bash
+  docker compose up -d
+  # или собрать образ:
+  docker compose build
+  ```
 
 ## Использование
 
@@ -119,15 +100,22 @@ python run.py
 
 ### Получение токена
 ```
-GET /api/active_token/{location_id}
+GET /api/active_token
 ```
-Возвращает активный токен для локации или создает новый.
+Возвращает активный токен (глобальный). Требуется `X-API-Key` если задан API_KEY, или сессионный доступ с терминала.
 
 ### Веб-интерфейсы
-- `/login` - вход в систему
-- `/terminal` - терминал с QR-кодом
-- `/admin` - админ-панель
-- `/logout` - выход
+- `/login` — вход в систему
+- `/terminal` — публичный терминал с QR-кодом (сессия помечается для вызова `/api/active_token`)
+- `/admin` — админ-панель (требует логин)
+- `/logout` — выход
+
+### Дефолтные пользователи (создаются автоматически на пустой БД)
+- admin (role=admin)
+- manager (role=manager)
+- hr (role=hr)
+
+Пароли генерируются при первой инициализации пустой БД и выводятся в stdout (логи контейнера). Внутри контейнера не сохраняются.
 
 ## Структура базы данных
 
@@ -148,10 +136,10 @@ GET /api/active_token/{location_id}
 
 ## Безопасность
 
-- QR-коды одноразовые
-- Токены истекают через 24 часа
-- Веб-интерфейс защищен логином/паролем
-- Данные хранятся локально в SQLite
+- Обязательные секреты из ENV: `SECRET_KEY`, `BOT_TOKEN`, `BOT_USERNAME`, `WEB_PASSWORD`; при необходимости `API_KEY`.
+- `/api/analytics/*` и `/api/active_token` требуют API-ключ или авторизованную сессию.
+- QR-коды одноразовые, токены истекают через 24 часа.
+- Данные хранятся локально в SQLite (рассмотрите бэкапы/шифрование/перенос в внешний DB).
 
 ## TODO (будущие улучшения)
 

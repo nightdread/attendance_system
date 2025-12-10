@@ -185,6 +185,28 @@ class AttendanceBot:
             await query.edit_message_text("❌ Неизвестное действие.")
             return
 
+        # Prevent duplicate state (нельзя прийти дважды подряд или уйти дважды подряд)
+        last_events = self.db.get_user_events(user.id, limit=1)
+        if last_events:
+            last_action = last_events[0]["action"]
+            if action_code == "in" and last_action == "in":
+                await query.edit_message_text(
+                    "⚠️ Вы уже отметили приход. Сначала отметьте уход."
+                )
+                return
+            if action_code == "out" and last_action == "out":
+                await query.edit_message_text(
+                    "⚠️ Вы уже отметили уход. Сначала отметьте приход."
+                )
+                return
+        else:
+            # No events yet — нельзя уйти, если не было прихода
+            if action_code == "out":
+                await query.edit_message_text(
+                    "⚠️ Сначала отметьте приход, потом уход."
+                )
+                return
+
         # Create event
         try:
             self.db.create_event(
