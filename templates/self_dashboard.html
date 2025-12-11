@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Моя статистика</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #111827;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --accent: #0ea5e9;
+            --accent-hover: #0284c7;
+            --border: #1f2937;
+            --shadow: 0 10px 30px rgba(0,0,0,0.35);
+            --success: #22c55e;
+            --warn: #f59e0b;
+            --danger: #ef4444;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .title h1 {
+            margin: 0;
+        }
+        .nav a {
+            padding: 0.5rem 1rem;
+            background: var(--accent);
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            box-shadow: 0 4px 10px rgba(14,165,233,0.25);
+            transition: background 0.15s ease, transform 0.1s ease;
+        }
+        .nav a:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            padding: 1.25rem;
+            border: 1px solid var(--border);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+        }
+        .stat-value { font-size: 1.6rem; font-weight: 700; }
+        .stat-label { color: var(--muted); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+        }
+        th { background-color: #0b1220; font-weight: 600; }
+        .action-in { color: var(--success); font-weight: 700; }
+        .action-out { color: var(--danger); font-weight: 700; }
+        .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #0b1220; color: var(--muted); font-size: 0.85rem; }
+        .muted { color: var(--muted); }
+        .no-data { text-align: center; color: var(--muted); padding: 2rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">
+                <h1>Моя статистика</h1>
+                <div class="muted">Роль: {{ role or "user" }}</div>
+            </div>
+            <div class="nav">
+                <a href="/terminal">Терминал</a>
+                <a href="/logout">Выйти</a>
+            </div>
+        </div>
+
+        {% if error %}
+            <div class="card">{{ error }}</div>
+        {% else %}
+        <div class="card" style="margin-bottom: 1rem;">
+            <h2 style="margin-top:0;">{{ person.fio }}</h2>
+            <div class="muted">Telegram ID: {{ person.tg_user_id }}</div>
+            {% if person.username %}<div class="muted">@{{ person.username }}</div>{% endif %}
+            <div class="muted">Регистрация: {{ person.created_at[:19].replace('T',' ') }}</div>
+        </div>
+
+        <div class="grid" style="margin-bottom: 1rem;">
+            <div class="card">
+                <div class="stat-label">Рабочих дней</div>
+                <div class="stat-value">{{ stats.total_work_days or 0 }}</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Приходов / Уходов</div>
+                <div class="stat-value">{{ stats.total_checkins or 0 }} / {{ stats.total_checkouts or 0 }}</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Среднее время работы</div>
+                <div class="stat-value">{{ stats.avg_work_time or 0 }} ч</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Последний визит</div>
+                <div class="stat-value">{{ stats.last_visit or "—" }}</div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 1rem;">
+            <h3 style="margin-top:0;">Последние сессии</h3>
+            {% if stats.recent_sessions %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Приход</th>
+                        <th>Уход</th>
+                        <th>Часы</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in stats.recent_sessions %}
+                    <tr>
+                        <td>{{ s.work_date }}</td>
+                        <td>{{ s.checkin_time or "—" }}</td>
+                        <td>{{ s.checkout_time or "—" }}</td>
+                        <td>{{ s.work_hours or "—" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-data">Нет данных по сессиям</div>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0;">Месячная активность (последние месяцы)</h3>
+            {% if stats.monthly_stats %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Месяц</th>
+                        <th>Рабочих дней</th>
+                        <th>Приходов</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in stats.monthly_stats %}
+                    <tr>
+                        <td>{{ m.month }}</td>
+                        <td>{{ m.work_days }}</td>
+                        <td>{{ m.checkins }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-data">Нет данных</div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
+

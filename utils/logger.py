@@ -1,12 +1,32 @@
 """
 Logging system for the attendance application
 """
+import json
 import logging
 import logging.handlers
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
+
+class JsonFormatter(logging.Formatter):
+    """Simple JSON formatter for structured logs"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "func": record.funcName,
+            "line": record.lineno,
+        }
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            log_entry["stack"] = self.formatStack(record.stack_info)
+        return json.dumps(log_entry, ensure_ascii=False)
+
 
 class Logger:
     """Centralized logging configuration"""
@@ -42,12 +62,12 @@ class Logger:
         # Remove existing handlers
         self.logger.handlers.clear()
 
-        # Create formatters
-        detailed_formatter = logging.Formatter(
+        # Choose formatter (default JSON for structured logs)
+        use_json = os.getenv("LOG_FORMAT", "json").lower() == "json"
+        detailed_formatter = JsonFormatter() if use_json else logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
         )
-
-        simple_formatter = logging.Formatter(
+        simple_formatter = JsonFormatter() if use_json else logging.Formatter(
             '%(asctime)s - %(levelname)s - %(message)s'
         )
 

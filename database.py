@@ -208,6 +208,48 @@ class Database:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def get_employee_stats_by_tg(self, tg_user_id: int) -> Optional[Dict[str, Any]]:
+        """Get detailed stats using Telegram user id"""
+        person = self.get_person_by_tg_id(tg_user_id)
+        if not person:
+            return None
+        return self.get_employee_detailed_stats(person["id"])
+
+    def provision_web_credentials(self, tg_user_id: int, fio: str) -> Dict[str, str]:
+        """
+        Create a linked web user with role 'user' and return generated credentials.
+        Username основан на tg_user_id (стабилен, даже если @username меняется).
+        """
+        base_username = f"user{tg_user_id}"
+
+        candidate = base_username
+        suffix = 1
+        while self.get_web_user_by_username(candidate):
+            candidate = f"{base_username}{suffix}"
+            suffix += 1
+
+        password_plain = secrets.token_urlsafe(8)
+        self.create_web_user(
+            username=candidate,
+            password=password_plain,
+            full_name=fio,
+            role="user"
+        )
+
+        return {"username": candidate, "password": password_plain}
+
+    def ensure_web_user_for_person(self, tg_user_id: int, fio: str) -> Optional[Dict[str, str]]:
+        """
+        Ensure a web user exists for given tg_user_id. If not, create and return creds.
+        Returns None if user already exists.
+        """
+        base_username = f"user{tg_user_id}"
+        existing = self.get_web_user_by_username(base_username)
+        if existing:
+            return None
+
+        return self.provision_web_credentials(tg_user_id=tg_user_id, fio=fio)
+
     def update_person_fio(self, tg_user_id: int, fio: str) -> bool:
         """Update person's FIO"""
         with self.get_connection() as conn:

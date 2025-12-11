@@ -140,6 +140,48 @@ async def get_active_token(request: Request, db: Database = Depends(get_db)):
     url = f"https://t.me/{BOT_USERNAME}?start={token}"
     return {"token": token, "url": url, "bot_url": url}
 
+@app.get("/api/token")
+async def get_token_for_device(request: Request, db: Database = Depends(get_db)):
+    """Get active token for microcontroller/device (simplified endpoint)
+    
+    This endpoint is designed for microcontrollers (ESP32, Arduino, etc.)
+    that need to get the current token and generate QR code locally.
+    
+    Authentication: Optional API key via X-API-Key header (if API_KEY is configured)
+    If no API_KEY is set, this endpoint is publicly accessible (read-only).
+    
+    Returns:
+        {
+            "token": "current_token_string",
+            "url": "https://t.me/bot_username?start=token",
+            "bot_username": "bot_username"
+        }
+    """
+    # Optional API key check (if configured)
+    if API_KEY:
+        header_key = request.headers.get("X-API-Key")
+        if header_key != API_KEY:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    token_data = db.get_active_token()
+    token = token_data['token'] if token_data else db.create_token()
+    url = f"https://t.me/{BOT_USERNAME}?start={token}"
+    
+    # Include token creation timestamp for change detection
+    if token_data:
+        created_at = token_data.get('created_at', '')
+    else:
+        # If we just created a token, get it again to include timestamp
+        token_data = db.get_active_token()
+        created_at = token_data.get('created_at', '') if token_data else ''
+    
+    return {
+        "token": token,
+        "url": url,
+        "bot_username": BOT_USERNAME,
+        "created_at": created_at  # ISO format timestamp for change detection
+    }
+
 # Web terminal routes
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Database = Depends(get_db)):
@@ -304,6 +346,54 @@ async def user_history(request: Request, user_id: int, db: Database = Depends(ge
             "events": events
         }
     )
+
+@app.get("/me", response_class=HTMLResponse)
+async def self_dashboard(request: Request, db: Database = Depends(get_db)):
+    """Personal dashboard for authenticated users (role user and above)"""
+    token = request.session.get("access_token")
+    if not token:
+        return RedirectResponse(url="/login", status_code=302)
+
+    try:
+        payload = JWTHandler.verify_token(token)
+        username = payload.get("sub")
+        role = payload.get("role", "user")
+
+        # derive tg_user_id from username pattern user<tgid>
+        tg_user_id = None
+        if username and username.startswith("user"):
+            suffix = username[4:]
+            if suffix.isdigit():
+                tg_user_id = int(suffix)
+
+        if tg_user_id is None:
+            return RedirectResponse(url="/login", status_code=302)
+
+        person = db.get_person_by_tg_id(tg_user_id)
+        stats = db.get_employee_stats_by_tg(tg_user_id)
+
+        if not person or not stats:
+            return templates.TemplateResponse(
+                "self_dashboard.html",
+                {
+                    "request": request,
+                    "error": "Профиль не найден. Отсканируйте QR через бота, чтобы зарегистрироваться."
+                }
+            )
+
+        return templates.TemplateResponse(
+            "self_dashboard.html",
+            {
+                "request": request,
+                "person": person,
+                "stats": stats,
+                "role": role
+            }
+        )
+    except Exception as e:
+        log_error(f"Self dashboard error: {e}")
+        request.session.clear()
+        return RedirectResponse(url="/login", status_code=302)
 
 # Analytics and user management pages
 @app.get("/analytics", response_class=HTMLResponse)

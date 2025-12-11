@@ -65,6 +65,15 @@ class AttendanceBot:
 
         if person:
             # User is registered, show check-in/out buttons
+            creds = self.db.ensure_web_user_for_person(user.id, person["fio"])
+            if creds:
+                await update.message.reply_text(
+                    "🆕 Учетка для входа на сайт создана.\n"
+                    f"👤 Логин: {creds['username']}\n"
+                    f"🔑 Пароль: {creds['password']}\n"
+                    "💾 Сохраните пароль — он показывается один раз.\n"
+                    "🌐 Вход: откройте веб-панель и авторизуйтесь под этими данными."
+                )
             await self.show_action_buttons(update, context, token, location, person)
         else:
             # User is new, ask for FIO
@@ -103,6 +112,12 @@ class AttendanceBot:
                     username=user.username
                 )
 
+                # Create web credentials for portal login (role user)
+                creds = self.db.provision_web_credentials(
+                    tg_user_id=user.id,
+                    fio=text
+                )
+
                 # Remove from pending registration
                 del context.user_data['pending_registration']
 
@@ -114,6 +129,15 @@ class AttendanceBot:
                     registration_data['location'],
                     person
                 )
+
+                if creds:
+                    await update.message.reply_text(
+                        "🆕 Учетка для входа на сайт создана.\n"
+                        f"👤 Логин: {creds['username']}\n"
+                        f"🔑 Пароль: {creds['password']}\n"
+                        "💾 Сохраните пароль — он показывается один раз.\n"
+                        "🌐 Вход: откройте веб-панель и авторизуйтесь под этими данными."
+                    )
 
             except Exception as e:
                 logger.error(f"Error creating person: {e}")

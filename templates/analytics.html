@@ -156,6 +156,43 @@
             padding: 0.25rem 0.5rem;
             border-radius: 4px;
         }
+        .legend-box {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: var(--card);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            border-left: 4px solid var(--accent);
+            color: var(--text);
+        }
+        .legend-box h4 {
+            margin: 0 0 0.75rem 0;
+            color: var(--accent);
+        }
+        .legend-items {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .legend-pill {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: white;
+        }
+        .legend-admin {
+            background: #0ea5e9;
+        }
+        .legend-employee {
+            background: #22c55e;
+        }
     </style>
 </head>
 <body>
@@ -288,15 +325,15 @@
                 </div>
                 {% endfor %}
 
-                <div style="margin-top: 2rem; padding: 1rem; background: #e7f3ff; border-radius: 8px; border-left: 4px solid #007bff;">
-                    <h4 style="margin: 0 0 0.5rem 0; color: #007bff;">📊 Легенда:</h4>
-                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <span style="background: #007bff; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem;">АДМИН</span>
+                <div class="legend-box">
+                    <h4>📊 Легенда:</h4>
+                    <div class="legend-items">
+                        <div class="legend-item">
+                            <span class="legend-pill legend-admin">АДМИН</span>
                             <span>Веб-пользователи (admin, hr, manager)</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem;">СОТРУДНИКИ</span>
+                        <div class="legend-item">
+                            <span class="legend-pill legend-employee">СОТРУДНИКИ</span>
                             <span>Обычные работники (регистрируются через бота)</span>
                         </div>
                     </div>

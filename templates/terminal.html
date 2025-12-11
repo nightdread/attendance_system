@@ -64,10 +64,14 @@
             margin-top: 1rem;
             color: var(--muted);
         }
-        .admin-btn {
+        .top-buttons {
             position: absolute;
             top: 20px;
             right: 20px;
+            display: flex;
+            gap: 0.75rem;
+        }
+        .admin-btn, .cabinet-btn {
             background: var(--accent);
             color: white;
             border: none;
@@ -79,11 +83,11 @@
             box-shadow: 0 4px 10px rgba(14,165,233,0.35);
             transition: background 0.15s ease, transform 0.1s ease;
         }
-        .admin-btn:hover {
+        .admin-btn:hover, .cabinet-btn:hover {
             background: var(--accent-hover);
             transform: translateY(-1px);
         }
-        .admin-btn:active {
+        .admin-btn:active, .cabinet-btn:active {
             transform: translateY(0);
         }
         .copy-btn {
@@ -113,7 +117,12 @@
     </style>
 </head>
 <body>
-    <a href="/login" class="admin-btn">Admin</a>
+    <div class="top-buttons">
+        <a href="{% if user_info %}/me{% else %}/login{% endif %}" class="cabinet-btn">Личный кабинет</a>
+        {% if user_info and user_info.is_admin %}
+        <a href="/admin" class="admin-btn">Администрирование</a>
+        {% endif %}
+    </div>
     <div class="terminal-container">
         <div class="qr-container">
             <h2 style="color: var(--text);">Система учета посещаемости</h2>
@@ -193,17 +202,70 @@
         setInterval(updateQRCode, updateInterval);
 
         function copyText(text) {
-            if (!text) return;
-            navigator.clipboard.writeText(text).then(() => {
-                document.getElementById('status').textContent = 'Скопировано';
-                setTimeout(() => document.getElementById('status').textContent = 'QR-код готов для сканирования', 1500);
-            }).catch(() => {
-                document.getElementById('status').textContent = 'Не удалось скопировать';
-            });
+            if (!text || text === 'Загрузка...' || text === '-') {
+                document.getElementById('status').textContent = 'Нет данных для копирования';
+                return;
+            }
+            
+            // Используем современный API или fallback для старых браузеров
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    document.getElementById('status').textContent = 'Скопировано';
+                    setTimeout(() => {
+                        if (document.getElementById('status')) {
+                            document.getElementById('status').textContent = 'QR-код готов для сканирования';
+                        }
+                    }, 1500);
+                }).catch((err) => {
+                    console.error('Clipboard error:', err);
+                    // Fallback для старых браузеров
+                    fallbackCopyText(text);
+                });
+            } else {
+                // Fallback для браузеров без Clipboard API
+                fallbackCopyText(text);
+            }
         }
 
-        document.getElementById('copy-token-btn').addEventListener('click', () => copyText(currentToken));
-        document.getElementById('copy-link-btn').addEventListener('click', () => copyText(botUrl));
+        function fallbackCopyText(text) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    document.getElementById('status').textContent = 'Скопировано';
+                    setTimeout(() => {
+                        if (document.getElementById('status')) {
+                            document.getElementById('status').textContent = 'QR-код готов для сканирования';
+                        }
+                    }, 1500);
+                } else {
+                    document.getElementById('status').textContent = 'Не удалось скопировать';
+                }
+            } catch (err) {
+                console.error('Fallback copy error:', err);
+                document.getElementById('status').textContent = 'Не удалось скопировать';
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        document.getElementById('copy-token-btn').addEventListener('click', () => {
+            const tokenText = document.getElementById('current-token').textContent.trim();
+            copyText(tokenText);
+        });
+        
+        document.getElementById('copy-link-btn').addEventListener('click', () => {
+            const linkText = document.getElementById('bot-link').textContent.trim();
+            copyText(linkText);
+        });
     </script>
 </body>
 </html>
