@@ -234,7 +234,8 @@ async def login(
                     }
                 )
         else:
-            attempts = LOGIN_ATTEMPTS[client_ip]
+            # Use get() to avoid KeyError if key doesn't exist
+            attempts = LOGIN_ATTEMPTS.get(client_ip, [])
             LOGIN_ATTEMPTS[client_ip] = [t for t in attempts if now - t < LOGIN_WINDOW_SEC]
             if len(LOGIN_ATTEMPTS[client_ip]) >= MAX_LOGIN_ATTEMPTS:
                 return templates.TemplateResponse(
@@ -276,13 +277,19 @@ async def login(
             else:
                 return RedirectResponse(url="/", status_code=302)
         else:
+            # Initialize list if key doesn't exist
+            if client_ip not in LOGIN_ATTEMPTS:
+                LOGIN_ATTEMPTS[client_ip] = []
             LOGIN_ATTEMPTS[client_ip].append(now)
             return templates.TemplateResponse(
                 "login.html",
                 {"request": request, "error": "Invalid credentials"}
             )
     except Exception as e:
-        log_error(f"Login error: {e}")
+        log_error(e, "Login")
+        # Initialize list if key doesn't exist
+        if client_ip not in LOGIN_ATTEMPTS:
+            LOGIN_ATTEMPTS[client_ip] = []
         LOGIN_ATTEMPTS[client_ip].append(now)
         return templates.TemplateResponse(
             "login.html",
@@ -391,7 +398,7 @@ async def self_dashboard(request: Request, db: Database = Depends(get_db)):
             }
         )
     except Exception as e:
-        log_error(f"Self dashboard error: {e}")
+        log_error(e, "Self dashboard")
         request.session.clear()
         return RedirectResponse(url="/login", status_code=302)
 
@@ -434,7 +441,7 @@ async def analytics_dashboard(request: Request):
             }
         )
     except Exception as e:
-        log_error(f"Analytics page token validation error: {e}")
+        log_error(e, "Analytics page token validation")
         request.session.clear()
         return RedirectResponse(url="/login", status_code=302)
 
@@ -467,7 +474,7 @@ async def user_management(request: Request, db: Database = Depends(get_db)):
             }
         )
     except Exception as e:
-        log_error(f"User management page error: {e}")
+        log_error(e, "User management page")
         request.session.clear()
         return RedirectResponse(url="/login", status_code=302)
 
@@ -492,13 +499,13 @@ async def update_user(
     db: Database = Depends(get_db)
 ):
     """Update user"""
-    authorize_request(request, require_roles=["admin", "manager"])
+    # Authorize and get payload once
+    payload = authorize_request(request, require_roles=["admin", "manager"])
     
     # Get current user ID for audit
-    payload = authorize_request(request, require_roles=["admin", "manager"])
     current_username = payload.get("sub")
     current_user = db.get_web_user_by_username(current_username) if current_username else None
-    updated_by = current_user.get("id") if current_user else None
+    updated_by = current_user.get("id") if current_user and current_user.get("id") else None
     
     # Check if user exists
     user = db.get_web_user_by_id(user_id)

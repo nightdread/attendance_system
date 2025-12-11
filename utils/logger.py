@@ -140,9 +140,18 @@ def log_attendance_event(user_id: int, location: str, action: str, method: str =
     """Log attendance events"""
     logger.info(f"ATTENDANCE: User {user_id} {action} at {location} via {method}")
 
-def log_error(error: Exception, context: str = ""):
-    """Log errors with context"""
-    logger.error(f"ERROR in {context}: {str(error)}", exc_info=True)
+def log_error(error: Exception | str, context: str = ""):
+    """Log errors with context
+    
+    Args:
+        error: Exception object or error message string
+        context: Optional context string describing where the error occurred
+    """
+    if isinstance(error, Exception):
+        logger.error(f"ERROR in {context}: {str(error)}", exc_info=True)
+    else:
+        # If it's a string, log it as a message
+        logger.error(f"ERROR in {context}: {error}", exc_info=False)
 
 def log_performance(operation: str, duration: float, details: str = ""):
     """Log performance metrics"""

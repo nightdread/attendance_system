@@ -91,3 +91,4 @@ dump.rdb
 *.egg-info/
 dist/
 build/
+IMPROVEMENTS.md
