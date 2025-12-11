@@ -1081,6 +1081,23 @@
                     html += '<ul class="employees-list">';
                     
                     data.employees.forEach(emp => {
+                        const intervals = Array.isArray(emp.intervals) ? emp.intervals : [];
+                        const hasIntervals = intervals.length > 0;
+
+                        let intervalsHtml = '';
+                        if (hasIntervals) {
+                            intervalsHtml = intervals.map((intv, idx) => {
+                                const label = intv.end ? `${intv.start} – ${intv.end}` : `${intv.start} – …`;
+                                return `<span class="time-badge">${label}</span>`;
+                            }).join(' ');
+                        } else {
+                            intervalsHtml = `
+                                ${emp.checkin_time ? `<span class="time-badge time-checkin">Приход: ${emp.checkin_time}</span>` : ''}
+                                ${emp.checkout_time ? `<span class="time-badge time-checkout">Уход: ${emp.checkout_time}</span>` : ''}
+                                ${!emp.checkin_time && !emp.checkout_time ? '<span style="color: var(--muted);">Нет данных</span>' : ''}
+                            `;
+                        }
+
                         html += `
                             <li class="employee-item">
                                 <div class="employee-info">
@@ -1091,9 +1108,8 @@
                                     </div>
                                 </div>
                                 <div class="employee-times">
-                                    ${emp.checkin_time ? `<span class="time-badge time-checkin">Приход: ${emp.checkin_time}</span>` : ''}
-                                    ${emp.checkout_time ? `<span class="time-badge time-checkout">Уход: ${emp.checkout_time}</span>` : ''}
-                                    ${!emp.checkin_time && !emp.checkout_time ? '<span style="color: var(--muted);">Нет данных</span>' : ''}
+                                    ${hasIntervals ? `<div style="margin-bottom: 0.35rem; color: var(--muted); font-size: 0.9rem;">Интервалы за день</div>` : ''}
+                                    ${intervalsHtml}
                                 </div>
                             </li>
                         `;

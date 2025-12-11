@@ -1025,39 +1025,93 @@ class Database:
             return [{'hour': int(row[0]), 'count': row[1]} for row in cursor.fetchall()]
 
     def get_employees_by_date(self, date: str) -> List[Dict[str, Any]]:
-        """Get list of employees who visited on a specific date"""
+        """Get list of employees who visited on a specific date with all work intervals"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT DISTINCT
+            # Получаем все события за день по пользователям сразу, чтобы собрать интервалы
+            cursor.execute(
+                """
+                SELECT
+                    e.user_id,
+                    e.action,
+                    e.ts,
                     p.fio,
                     p.username,
-                    p.tg_user_id,
-                    MIN(CASE WHEN e.action = 'in' THEN e.ts END) as checkin_time,
-                    MAX(CASE WHEN e.action = 'out' THEN e.ts END) as checkout_time,
-                    COUNT(CASE WHEN e.action = 'in' THEN 1 END) as checkins_count,
-                    COUNT(CASE WHEN e.action = 'out' THEN 1 END) as checkouts_count
+                    p.tg_user_id
                 FROM events e
                 JOIN people p ON e.user_id = p.tg_user_id
                 WHERE DATE(e.ts) = ?
-                GROUP BY p.id, p.fio, p.username, p.tg_user_id
-                ORDER BY checkin_time
-            """, (date,))
+                ORDER BY e.user_id, e.ts
+                """,
+                (date,)
+            )
 
-            employees = []
+            employees: Dict[int, Dict[str, Any]] = {}
+
             for row in cursor.fetchall():
-                employee = dict(row)
-                # Форматируем время
-                if employee['checkin_time']:
-                    checkin_dt = datetime.fromisoformat(employee['checkin_time'])
-                    employee['checkin_time'] = checkin_dt.strftime('%H:%M')
-                if employee['checkout_time']:
-                    checkout_dt = datetime.fromisoformat(employee['checkout_time'])
-                    employee['checkout_time'] = checkout_dt.strftime('%H:%M')
-                employees.append(employee)
-            
-            return employees
+                user_id = row["user_id"]
+                action = row["action"]
+                ts = row["ts"]
+
+                if user_id not in employees:
+                    employees[user_id] = {
+                        "fio": row["fio"],
+                        "username": row["username"],
+                        "tg_user_id": row["tg_user_id"],
+                        "checkins_count": 0,
+                        "checkouts_count": 0,
+                        "checkin_time": None,
+                        "checkout_time": None,
+                        "intervals": [],
+                        "_open_start": None,  # служебное поле для сборки интервалов
+                    }
+
+                emp = employees[user_id]
+
+                # Подсчет приходов/уходов и запоминание первого/последнего времени
+                if action == "in":
+                    emp["checkins_count"] += 1
+                    if not emp["checkin_time"]:
+                        emp["checkin_time"] = ts
+                    emp["_open_start"] = ts
+                elif action == "out":
+                    emp["checkouts_count"] += 1
+                    emp["checkout_time"] = ts
+                    if emp.get("_open_start"):
+                        emp["intervals"].append(
+                            {"start": emp["_open_start"], "end": ts}
+                        )
+                        emp["_open_start"] = None
+
+            # Завершаем сборку: форматируем времена и приводим интервалы к HH:MM
+            result: List[Dict[str, Any]] = []
+            for emp in employees.values():
+                # Если смена открыта и не было выхода — добавляем незавершённый интервал
+                if emp.get("_open_start"):
+                    emp["intervals"].append({"start": emp["_open_start"], "end": None})
+
+                # Форматирование времени
+                if emp["checkin_time"]:
+                    emp["checkin_time"] = datetime.fromisoformat(emp["checkin_time"]).strftime("%H:%M")
+                if emp["checkout_time"]:
+                    emp["checkout_time"] = datetime.fromisoformat(emp["checkout_time"]).strftime("%H:%M")
+
+                formatted_intervals = []
+                for interval in emp["intervals"]:
+                    start_fmt = datetime.fromisoformat(interval["start"]).strftime("%H:%M")
+                    end_fmt = datetime.fromisoformat(interval["end"]).strftime("%H:%M") if interval["end"] else None
+                    formatted_intervals.append({"start": start_fmt, "end": end_fmt})
+
+                emp["intervals"] = formatted_intervals
+
+                # Удаляем служебное поле
+                emp.pop("_open_start", None)
+                result.append(emp)
+
+            # Сортируем по первому приходу (checkin_time) для стабильного порядка
+            result.sort(key=lambda x: x["checkin_time"] or "")
+            return result
 
     def get_top_workers(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Get top workers by total work time (last 30 days)"""

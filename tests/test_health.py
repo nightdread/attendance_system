@@ -21,6 +21,8 @@ def test_health_endpoint():
 
 
 def test_active_token():
+    # public terminal sets a session flag to allow /api/active_token
+    client.get("/terminal")
     resp = client.get("/api/active_token")
     assert resp.status_code == 200
     data = resp.json()
