@@ -611,6 +611,69 @@ class Database:
             )
             return cursor.rowcount > 0
 
+    def get_web_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get web user by ID"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM web_users WHERE id = ?", (user_id,))
+            user = cursor.fetchone()
+            return dict(user) if user else None
+
+    def update_web_user(self, user_id: int, full_name: str = None, role: str = None, 
+                       department: str = None, position: str = None, 
+                       is_active: bool = None, password: str = None,
+                       updated_by: int = None) -> bool:
+        """Update web user information"""
+        import json
+        from config.config import USER_ROLES
+        
+        updates = []
+        params = []
+
+        if full_name is not None:
+            updates.append("full_name = ?")
+            params.append(full_name)
+
+        if role is not None:
+            updates.append("role = ?")
+            params.append(role)
+            # Update permissions based on role
+            role_permissions = USER_ROLES.get(role, {}).get("permissions", [])
+            updates.append("permissions = ?")
+            params.append(json.dumps(role_permissions))
+
+        if department is not None:
+            updates.append("department = ?")
+            params.append(department)
+
+        if position is not None:
+            updates.append("position = ?")
+            params.append(position)
+
+        if is_active is not None:
+            updates.append("is_active = ?")
+            params.append(1 if is_active else 0)
+
+        if password is not None:
+            from auth.jwt_handler import JWTHandler
+            password_hash = JWTHandler.get_password_hash(password)
+            updates.append("password_hash = ?")
+            params.append(password_hash)
+
+        if not updates:
+            return False
+
+        params.append(user_id)
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"UPDATE web_users SET {', '.join(updates)} WHERE id = ?",
+                params
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
     # Analytics methods
     def get_daily_stats(self, date: str) -> Dict[str, Any]:
         """Get daily attendance statistics"""
@@ -960,6 +1023,41 @@ class Database:
             """)
 
             return [{'hour': int(row[0]), 'count': row[1]} for row in cursor.fetchall()]
+
+    def get_employees_by_date(self, date: str) -> List[Dict[str, Any]]:
+        """Get list of employees who visited on a specific date"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT DISTINCT
+                    p.fio,
+                    p.username,
+                    p.tg_user_id,
+                    MIN(CASE WHEN e.action = 'in' THEN e.ts END) as checkin_time,
+                    MAX(CASE WHEN e.action = 'out' THEN e.ts END) as checkout_time,
+                    COUNT(CASE WHEN e.action = 'in' THEN 1 END) as checkins_count,
+                    COUNT(CASE WHEN e.action = 'out' THEN 1 END) as checkouts_count
+                FROM events e
+                JOIN people p ON e.user_id = p.tg_user_id
+                WHERE DATE(e.ts) = ?
+                GROUP BY p.id, p.fio, p.username, p.tg_user_id
+                ORDER BY checkin_time
+            """, (date,))
+
+            employees = []
+            for row in cursor.fetchall():
+                employee = dict(row)
+                # Форматируем время
+                if employee['checkin_time']:
+                    checkin_dt = datetime.fromisoformat(employee['checkin_time'])
+                    employee['checkin_time'] = checkin_dt.strftime('%H:%M')
+                if employee['checkout_time']:
+                    checkout_dt = datetime.fromisoformat(employee['checkout_time'])
+                    employee['checkout_time'] = checkout_dt.strftime('%H:%M')
+                employees.append(employee)
+            
+            return employees
 
     def get_top_workers(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Get top workers by total work time (last 30 days)"""

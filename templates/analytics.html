@@ -67,6 +67,48 @@
             color: var(--text);
             border-bottom: 2px solid var(--accent);
             padding-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+        .collapse-btn {
+            background: transparent;
+            border: none;
+            color: var(--accent);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .collapse-btn:hover {
+            background: rgba(14,165,233,0.1);
+            transform: scale(1.1);
+        }
+        .section-content {
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            overflow: hidden;
+        }
+        .section-content.collapsed {
+            max-height: 0;
+            opacity: 0;
+            margin: 0;
+            padding: 0;
+        }
+        .section-content.expanded {
+            max-height: 5000px;
+            opacity: 1;
         }
         .stats-grid {
             display: grid;
@@ -193,6 +235,212 @@
         .legend-employee {
             background: #22c55e;
         }
+        .calendar-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        .calendar-wrapper {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .calendar-nav-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.15s ease;
+        }
+        .calendar-nav-btn:hover {
+            background: var(--accent-hover);
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 0.5rem;
+        }
+        .calendar-day-header {
+            text-align: center;
+            font-weight: 600;
+            color: var(--muted);
+            padding: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: #0b1220;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            position: relative;
+        }
+        .calendar-day:hover {
+            border-color: var(--accent);
+            transform: scale(1.05);
+        }
+        .calendar-day.other-month {
+            opacity: 0.3;
+        }
+        .calendar-day.today {
+            border-color: var(--accent);
+            background: rgba(14,165,233,0.1);
+        }
+        .calendar-day.has-visits {
+            background: rgba(34,197,94,0.2);
+            border-color: var(--success);
+        }
+        .calendar-day.has-visits.many-visits {
+            background: rgba(34,197,94,0.4);
+        }
+        .calendar-day-number {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        .calendar-day-visits {
+            font-size: 0.7rem;
+            color: var(--success);
+            margin-top: 0.2rem;
+        }
+        .date-filter {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .date-filter input[type="date"] {
+            padding: 0.5rem;
+            background: #0b1220;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 1rem;
+        }
+        .date-filter button {
+            padding: 0.5rem 1rem;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.15s ease;
+        }
+        .date-filter button:hover {
+            background: var(--accent-hover);
+        }
+        .day-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            overflow: auto;
+        }
+        .day-modal-content {
+            background-color: var(--card);
+            margin: 5% auto;
+            padding: 2rem;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 700px;
+            box-shadow: var(--shadow);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .day-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: 1rem;
+        }
+        .day-modal-close {
+            color: var(--muted);
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+            line-height: 1;
+        }
+        .day-modal-close:hover {
+            color: var(--text);
+        }
+        .employees-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .employee-item {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            background: #0b1220;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .employee-info {
+            flex: 1;
+        }
+        .employee-name {
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.25rem;
+        }
+        .employee-meta {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .employee-times {
+            text-align: right;
+            font-size: 0.9rem;
+        }
+        .time-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            margin-left: 0.5rem;
+            font-size: 0.85rem;
+        }
+        .time-checkin {
+            background: rgba(34,197,94,0.2);
+            color: var(--success);
+        }
+        .time-checkout {
+            background: rgba(239,68,68,0.2);
+            color: var(--danger);
+        }
+        .no-employees {
+            text-align: center;
+            color: var(--muted);
+            padding: 2rem;
+        }
     </style>
 </head>
 <body>
@@ -211,8 +459,12 @@
 
         <!-- Общая статистика -->
         <div class="section">
-            <h2>📈 Общая статистика</h2>
-            <div class="stats-grid">
+            <h2 onclick="toggleSection('stats-section')">
+                <span>📈 Общая статистика</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('stats-section')">▶</button>
+            </h2>
+            <div id="stats-section" class="section-content collapsed">
+                <div class="stats-grid">
                 <div class="stat-card">
                     <span class="stat-value">{{ analytics_summary.total_users }}</span>
                     <div class="stat-label">Всего пользователей</div>
@@ -229,12 +481,37 @@
                     <span class="stat-value">{{ analytics_summary.avg_work_time }}ч</span>
                     <div class="stat-label">Среднее время работы (30 дней)</div>
                 </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Календарь посещаемости -->
+        <div class="section">
+            <h2 onclick="toggleSection('calendar-section')">
+                <span>📅 Календарь посещаемости</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('calendar-section')">▶</button>
+            </h2>
+            <div id="calendar-section" class="section-content collapsed">
+            <div class="calendar-container">
+                <div class="calendar-wrapper">
+                    <div class="calendar-header">
+                        <button class="calendar-nav-btn" onclick="changeMonth(-1)">← Предыдущий</button>
+                        <h3 id="calendar-month-year"></h3>
+                        <button class="calendar-nav-btn" onclick="changeMonth(1)">Следующий →</button>
+                    </div>
+                    <div class="calendar-grid" id="calendar-grid"></div>
+                </div>
+            </div>
             </div>
         </div>
 
         <!-- Графики -->
         <div class="section">
-            <h2>📊 Графики посещаемости</h2>
+            <h2 onclick="toggleSection('charts-section')">
+                <span>📊 Графики посещаемости</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('charts-section')">▶</button>
+            </h2>
+            <div id="charts-section" class="section-content collapsed">
             <div class="charts-grid">
                 <div>
                     <h3>Посещения по дням (7 дней)</h3>
@@ -249,11 +526,16 @@
                     </div>
                 </div>
             </div>
+            </div>
         </div>
 
         <!-- Топ работников -->
         <div class="section">
-            <h2>🏆 Топ работников (за 30 дней)</h2>
+            <h2 onclick="toggleSection('top-workers-section')">
+                <span>🏆 Топ работников (за 30 дней)</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('top-workers-section')">▶</button>
+            </h2>
+            <div id="top-workers-section" class="section-content collapsed">
             {% if top_workers %}
             <table>
                 <thead>
@@ -288,11 +570,16 @@
                 <p>Статистика появится после того, как сотрудники начнут отмечать приход и уход.</p>
             </div>
             {% endif %}
+            </div>
         </div>
 
         <!-- Статистика по отделам -->
         <div class="section">
-            <h2>🏢 Статистика по отделам и категориям</h2>
+            <h2 onclick="toggleSection('departments-section')">
+                <span>🏢 Статистика по отделам и категориям</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('departments-section')">▶</button>
+            </h2>
+            <div id="departments-section" class="section-content collapsed">
             {% if department_stats %}
                 {% for dept in department_stats %}
                 <div class="department-card">
@@ -344,11 +631,16 @@
                 <p>Пользователи еще не зарегистрированы в системе.</p>
             </div>
             {% endif %}
+            </div>
         </div>
 
         <!-- Детальная статистика сотрудника -->
         <div class="section">
-            <h2>👤 Детальная статистика сотрудника</h2>
+            <h2 onclick="toggleSection('employee-section')">
+                <span>👤 Детальная статистика сотрудника</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('employee-section')">▶</button>
+            </h2>
+            <div id="employee-section" class="section-content collapsed">
             <div style="margin-bottom: 1rem;">
                 <label for="employee-select" style="font-weight: bold; margin-right: 1rem;">Выберите сотрудника:</label>
                 <select id="employee-select" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd;">
@@ -364,11 +656,16 @@
                 <div id="employee-info" class="stats-grid" style="margin-bottom: 2rem;"></div>
                 <div id="employee-details"></div>
             </div>
+            </div>
         </div>
 
         <!-- Дополнительная информация -->
         <div class="section">
-            <h2>ℹ️ Информация</h2>
+            <h2 onclick="toggleSection('info-section')">
+                <span>ℹ️ Информация</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('info-section')">▶</button>
+            </h2>
+            <div id="info-section" class="section-content collapsed">
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
                 <div>
                     <h4>📅 Период анализа</h4>
@@ -386,10 +683,69 @@
                     <p>Обновите страницу для получения свежей статистики.</p>
                 </div>
             </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для просмотра сотрудников дня -->
+    <div id="dayModal" class="day-modal">
+        <div class="day-modal-content">
+            <div class="day-modal-header">
+                <h2 id="dayModalTitle">Сотрудники</h2>
+                <button class="day-modal-close" onclick="closeDayModal()">&times;</button>
+            </div>
+            <div id="dayModalBody">
+                <div class="no-employees">Загрузка...</div>
+            </div>
         </div>
     </div>
 
     <script>
+        // Функция сворачивания/разворачивания разделов
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const btn = section.previousElementSibling.querySelector('.collapse-btn');
+            
+            if (section.classList.contains('collapsed')) {
+                section.classList.remove('collapsed');
+                section.classList.add('expanded');
+                btn.textContent = '▼';
+            } else {
+                section.classList.remove('expanded');
+                section.classList.add('collapsed');
+                btn.textContent = '▶';
+            }
+            
+            // Сохраняем состояние в localStorage
+            localStorage.setItem(`section_${sectionId}`, section.classList.contains('collapsed') ? 'collapsed' : 'expanded');
+        }
+        
+        // Восстанавливаем состояние разделов при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            const sections = ['stats-section', 'calendar-section', 'charts-section', 'top-workers-section', 
+                             'departments-section', 'employee-section', 'info-section'];
+            
+            sections.forEach(sectionId => {
+                const savedState = localStorage.getItem(`section_${sectionId}`);
+                const section = document.getElementById(sectionId);
+                const btn = section.previousElementSibling.querySelector('.collapse-btn');
+                
+                if (section && btn) {
+                    // Если есть сохраненное состояние и оно expanded, разворачиваем
+                    if (savedState === 'expanded') {
+                        section.classList.remove('collapsed');
+                        section.classList.add('expanded');
+                        btn.textContent = '▼';
+                    } else {
+                        // По умолчанию все свернуты
+                        section.classList.remove('expanded');
+                        section.classList.add('collapsed');
+                        btn.textContent = '▶';
+                    }
+                }
+            });
+        });
+
         // Данные для графиков
         const dailyVisitsData = {{ daily_visits|tojson }};
         const hourlyData = {{ hourly_distribution|tojson }};
@@ -578,6 +934,196 @@
             // Scroll to employee stats
             statsDiv.scrollIntoView({ behavior: 'smooth' });
         }
+
+        // Календарь посещаемости
+        let currentCalendarDate = new Date();
+        let visitsData = {};
+
+        // Загружаем данные о посещаемости для календаря
+        async function loadCalendarData() {
+            try {
+                const startDate = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), 1);
+                const endDate = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth() + 1, 0);
+                
+                // Используем данные из dailyVisitsData если они доступны
+                if (typeof dailyVisitsData !== 'undefined' && dailyVisitsData.length > 0) {
+                    visitsData = {};
+                    dailyVisitsData.forEach(item => {
+                        const date = new Date(item.date);
+                        const dateKey = date.toISOString().split('T')[0];
+                        visitsData[dateKey] = item.visits || 0;
+                    });
+                } else {
+                    // Загружаем данные через API
+                    const response = await fetch(`/api/analytics/weekly`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        visitsData = {};
+                        if (data.daily_stats) {
+                            data.daily_stats.forEach(item => {
+                                visitsData[item.date] = item.unique_users || 0;
+                            });
+                        }
+                    }
+                }
+                
+                renderCalendar();
+            } catch (error) {
+                console.error('Error loading calendar data:', error);
+                renderCalendar();
+            }
+        }
+
+        function changeMonth(delta) {
+            currentCalendarDate.setMonth(currentCalendarDate.getMonth() + delta);
+            loadCalendarData();
+        }
+
+        function renderCalendar() {
+            const year = currentCalendarDate.getFullYear();
+            const month = currentCalendarDate.getMonth();
+            
+            // Обновляем заголовок
+            const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                              'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+            document.getElementById('calendar-month-year').textContent = `${monthNames[month]} ${year}`;
+            
+            // Первый день месяца
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const daysInMonth = lastDay.getDate();
+            const startingDayOfWeek = firstDay.getDay();
+            
+            // Корректируем день недели (воскресенье = 0, но нам нужно чтобы понедельник был первым)
+            const adjustedStartingDay = startingDayOfWeek === 0 ? 6 : startingDayOfWeek - 1;
+            
+            // Дни недели
+            const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+            
+            let calendarHTML = '';
+            
+            // Заголовки дней недели
+            dayNames.forEach(day => {
+                calendarHTML += `<div class="calendar-day-header">${day}</div>`;
+            });
+            
+            // Пустые ячейки до первого дня месяца
+            for (let i = 0; i < adjustedStartingDay; i++) {
+                calendarHTML += `<div class="calendar-day other-month"></div>`;
+            }
+            
+            // Дни месяца
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = new Date(year, month, day);
+                const dateKey = date.toISOString().split('T')[0];
+                const visits = visitsData[dateKey] || 0;
+                const isToday = date.getTime() === today.getTime();
+                
+                let dayClasses = 'calendar-day';
+                if (isToday) dayClasses += ' today';
+                if (visits > 0) {
+                    dayClasses += ' has-visits';
+                    if (visits > 5) dayClasses += ' many-visits';
+                }
+                
+                calendarHTML += `
+                    <div class="${dayClasses}" data-date="${dateKey}" onclick="showDayEmployees('${dateKey}')" title="${dateKey}: ${visits} посещений">
+                        <div class="calendar-day-number">${day}</div>
+                        ${visits > 0 ? `<div class="calendar-day-visits">${visits}</div>` : ''}
+                    </div>
+                `;
+            }
+            
+            // Пустые ячейки после последнего дня месяца
+            const totalCells = adjustedStartingDay + daysInMonth;
+            const remainingCells = 7 - (totalCells % 7);
+            if (remainingCells < 7) {
+                for (let i = 0; i < remainingCells; i++) {
+                    calendarHTML += `<div class="calendar-day other-month"></div>`;
+                }
+            }
+            
+            document.getElementById('calendar-grid').innerHTML = calendarHTML;
+        }
+
+        // Функции для работы с модальным окном дня
+        async function showDayEmployees(date) {
+            const modal = document.getElementById('dayModal');
+            const modalTitle = document.getElementById('dayModalTitle');
+            const modalBody = document.getElementById('dayModalBody');
+            
+            // Форматируем дату для отображения
+            const dateObj = new Date(date);
+            const dateFormatted = dateObj.toLocaleDateString('ru-RU', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            
+            modalTitle.textContent = `Сотрудники за ${dateFormatted}`;
+            modalBody.innerHTML = '<div class="no-employees">Загрузка...</div>';
+            modal.style.display = 'block';
+            
+            try {
+                const response = await fetch(`/api/employees/date/${date}`);
+                if (!response.ok) {
+                    throw new Error('Не удалось загрузить данные');
+                }
+                
+                const data = await response.json();
+                
+                if (data.employees && data.employees.length > 0) {
+                    let html = `<div style="margin-bottom: 1rem; color: var(--muted);">Всего сотрудников: ${data.total}</div>`;
+                    html += '<ul class="employees-list">';
+                    
+                    data.employees.forEach(emp => {
+                        html += `
+                            <li class="employee-item">
+                                <div class="employee-info">
+                                    <div class="employee-name">${emp.fio || 'Не указано'}</div>
+                                    <div class="employee-meta">
+                                        ${emp.username ? `@${emp.username}` : 'Без username'}
+                                        ${emp.checkins_count > 1 ? ` • ${emp.checkins_count} приходов` : ''}
+                                    </div>
+                                </div>
+                                <div class="employee-times">
+                                    ${emp.checkin_time ? `<span class="time-badge time-checkin">Приход: ${emp.checkin_time}</span>` : ''}
+                                    ${emp.checkout_time ? `<span class="time-badge time-checkout">Уход: ${emp.checkout_time}</span>` : ''}
+                                    ${!emp.checkin_time && !emp.checkout_time ? '<span style="color: var(--muted);">Нет данных</span>' : ''}
+                                </div>
+                            </li>
+                        `;
+                    });
+                    
+                    html += '</ul>';
+                    modalBody.innerHTML = html;
+                } else {
+                    modalBody.innerHTML = '<div class="no-employees">В этот день не было посещений</div>';
+                }
+            } catch (error) {
+                console.error('Error loading employees:', error);
+                modalBody.innerHTML = '<div class="no-employees">Ошибка при загрузке данных</div>';
+            }
+        }
+
+        function closeDayModal() {
+            document.getElementById('dayModal').style.display = 'none';
+        }
+
+        // Закрытие модального окна при клике вне его
+        window.onclick = function(event) {
+            const modal = document.getElementById('dayModal');
+            if (event.target == modal) {
+                closeDayModal();
+            }
+        }
+
+        // Инициализация календаря при загрузке страницы
+        loadCalendarData();
     </script>
 </body>
 </html>

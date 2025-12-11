@@ -471,6 +471,83 @@ async def user_management(request: Request, db: Database = Depends(get_db)):
         request.session.clear()
         return RedirectResponse(url="/login", status_code=302)
 
+# API endpoints for user management
+@app.get("/api/user/{user_id}")
+async def get_user(request: Request, user_id: int, db: Database = Depends(get_db)):
+    """Get user by ID"""
+    authorize_request(request, require_roles=["admin", "manager"])
+    
+    user = db.get_web_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Remove password hash from response
+    user.pop('password_hash', None)
+    return user
+
+@app.put("/api/user/{user_id}")
+async def update_user(
+    request: Request,
+    user_id: int,
+    db: Database = Depends(get_db)
+):
+    """Update user"""
+    authorize_request(request, require_roles=["admin", "manager"])
+    
+    # Get current user ID for audit
+    payload = authorize_request(request, require_roles=["admin", "manager"])
+    current_username = payload.get("sub")
+    current_user = db.get_web_user_by_username(current_username) if current_username else None
+    updated_by = current_user.get("id") if current_user else None
+    
+    # Check if user exists
+    user = db.get_web_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Parse JSON body
+    try:
+        body = await request.json()
+    except:
+        # Fallback to form data
+        form = await request.form()
+        body = dict(form)
+        # Convert is_active string to boolean
+        if 'is_active' in body:
+            body['is_active'] = body['is_active'].lower() in ('true', '1', 'yes', 'on')
+    
+    # Extract fields (only update provided fields)
+    full_name = body.get('full_name')
+    role = body.get('role')
+    department = body.get('department')
+    position = body.get('position')
+    is_active = body.get('is_active')
+    password = body.get('password')
+    
+    # Remove empty password
+    if password and password.strip() == '':
+        password = None
+    
+    # Update user
+    success = db.update_web_user(
+        user_id=user_id,
+        full_name=full_name,
+        role=role,
+        department=department,
+        position=position,
+        is_active=is_active,
+        password=password,
+        updated_by=updated_by
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to update user")
+    
+    # Return updated user
+    updated_user = db.get_web_user_by_id(user_id)
+    updated_user.pop('password_hash', None)
+    return updated_user
+
 @app.get("/api/employee/{employee_id}")
 async def get_employee_stats(employee_id: int, db: Database = Depends(get_db)):
     """Get detailed statistics for a specific employee"""
@@ -479,6 +556,24 @@ async def get_employee_stats(employee_id: int, db: Database = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Employee not found")
 
     return stats
+
+@app.get("/api/employees/date/{date}")
+async def get_employees_by_date(request: Request, date: str, db: Database = Depends(get_db)):
+    """Get list of employees who visited on a specific date (YYYY-MM-DD)"""
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    try:
+        # Validate date format
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    employees = db.get_employees_by_date(date)
+    return {
+        "date": date,
+        "employees": employees,
+        "total": len(employees)
+    }
 
 @app.get("/api/analytics/daily/{date}")
 async def analytics_daily(request: Request, date: str, db: Database = Depends(get_db)):
