@@ -58,6 +58,12 @@ attendance.db
 .env.*.local
 !.env.example
 
+# SSL certificates
+ssl/
+
+# Angie generated configuration
+angie.conf
+
 # Cookies and session files
 cookies.txt
 *.cookie

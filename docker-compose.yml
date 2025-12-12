@@ -40,6 +40,10 @@ services:
       start_period: 10s
     networks:
       - attendance_network
+    labels:
+      # Angie Docker модуль - автоматическое обнаружение
+      - "angie.http.upstreams.attendance_backend.port=8000"
+      - "angie.network=attendance_network"
 
   attendance_bot:
     build: .
@@ -65,6 +69,27 @@ services:
       start_period: 20s
     networks:
       - attendance_network
+
+  angie:
+    # Официальный образ Angie с модулями
+    image: docker.angie.software/angie:latest
+    container_name: attendance_angie
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./angie.conf:/etc/angie/angie.conf:ro
+      - ./ssl:/etc/ssl/certs:ro
+      - ./logs/angie:/var/log/angie
+      # Docker socket закомментирован - Docker модуль отключен
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - attendance_app
+    networks:
+      - attendance_network
+    env_file:
+      - .env
+    command: ["angie", "-g", "daemon off;"]
 
 volumes:
   redis_data:
