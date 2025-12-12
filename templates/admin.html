@@ -116,6 +116,65 @@
         .copy-btn:hover {
             background: rgba(14,165,233,0.12);
         }
+        /* Mobile styles */
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+            .container {
+                max-width: 100%;
+            }
+            .header h1 {
+                font-size: 1.5rem;
+            }
+            .nav {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+            .nav a {
+                width: 100%;
+                text-align: center;
+                padding: 0.75rem;
+                min-height: 44px;
+            }
+            .section {
+                padding: 1rem;
+                margin-bottom: 1rem;
+            }
+            .section h2 {
+                font-size: 1.1rem;
+            }
+            table {
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            th, td {
+                padding: 0.5rem;
+                font-size: 0.85rem;
+                white-space: nowrap;
+            }
+            .action-btn {
+                padding: 0.5rem 0.75rem;
+                min-height: 44px;
+                display: inline-block;
+            }
+        }
+        @media (max-width: 480px) {
+            body {
+                padding: 0.5rem;
+            }
+            .section {
+                padding: 0.75rem;
+            }
+            .header h1 {
+                font-size: 1.25rem;
+            }
+            th, td {
+                padding: 0.4rem;
+                font-size: 0.8rem;
+            }
+        }
     </style>
 </head>
 <body>

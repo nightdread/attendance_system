@@ -114,6 +114,65 @@
             flex-wrap: wrap;
             word-break: break-all;
         }
+        /* Mobile styles */
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+                align-items: flex-start;
+                padding-top: 80px;
+            }
+            .terminal-container {
+                padding: 1.5rem;
+                max-width: 100%;
+            }
+            .top-buttons {
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                left: 10px;
+                flex-direction: column;
+                gap: 0.5rem;
+                z-index: 1000;
+            }
+            .admin-btn, .cabinet-btn {
+                width: 100%;
+                padding: 0.75rem;
+                min-height: 44px;
+                font-size: 0.9rem;
+            }
+            .header h2 {
+                font-size: 1.25rem;
+            }
+            .qr-code {
+                margin: 1rem 0;
+            }
+            .token-info {
+                padding: 0.75rem;
+                font-size: 0.9rem;
+            }
+            .token-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            .copy-btn {
+                width: 100%;
+                padding: 0.6rem;
+                min-height: 44px;
+            }
+        }
+        @media (max-width: 480px) {
+            body {
+                padding: 0.5rem;
+                padding-top: 70px;
+            }
+            .terminal-container {
+                padding: 1rem;
+            }
+            .header h2 {
+                font-size: 1.1rem;
+            }
+        }
     </style>
 </head>
 <body>

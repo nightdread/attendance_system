@@ -81,6 +81,69 @@
         .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #0b1220; color: var(--muted); font-size: 0.85rem; }
         .muted { color: var(--muted); }
         .no-data { text-align: center; color: var(--muted); padding: 2rem; }
+        /* Mobile styles */
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+            .container {
+                max-width: 100%;
+            }
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .title h1 {
+                font-size: 1.5rem;
+            }
+            .nav {
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+            .nav a {
+                width: 100%;
+                text-align: center;
+                padding: 0.75rem;
+                min-height: 44px;
+            }
+            .card {
+                padding: 1rem;
+            }
+            .grid {
+                grid-template-columns: 1fr;
+                gap: 0.75rem;
+            }
+            table {
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            th, td {
+                padding: 0.5rem;
+                font-size: 0.85rem;
+                white-space: nowrap;
+            }
+        }
+        @media (max-width: 480px) {
+            body {
+                padding: 0.5rem;
+            }
+            .card {
+                padding: 0.75rem;
+            }
+            .title h1 {
+                font-size: 1.25rem;
+            }
+            .stat-value {
+                font-size: 1.4rem;
+            }
+            th, td {
+                padding: 0.4rem;
+                font-size: 0.8rem;
+            }
+        }
     </style>
 </head>
 <body>

@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import secrets
@@ -329,7 +329,8 @@ class Database:
     def create_event(self, user_id: int, location: str, action: str,
                     username: Optional[str] = None, full_name: Optional[str] = None) -> int:
         """Create new event"""
-        now = datetime.utcnow().isoformat()
+        # Сохраняем время в UTC с timezone info
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -390,9 +391,9 @@ class Database:
 
         for event in events:
             if event['action'] == 'in':
-                checkin_time = datetime.fromisoformat(event['ts'])
+                checkin_time = datetime.fromisoformat(event['ts'].replace('Z', '+00:00'))
             elif event['action'] == 'out' and checkin_time:
-                checkout_time = datetime.fromisoformat(event['ts'])
+                checkout_time = datetime.fromisoformat(event['ts'].replace('Z', '+00:00'))
                 total_seconds += (checkout_time - checkin_time).total_seconds()
                 checkin_time = None
 
@@ -1091,16 +1092,30 @@ class Database:
                 if emp.get("_open_start"):
                     emp["intervals"].append({"start": emp["_open_start"], "end": None})
 
-                # Форматирование времени
+                # Форматирование времени (конвертация из UTC в MSK)
+                msk_offset = timedelta(hours=3)  # MSK = UTC+3
+
+                def format_time_utc_to_msk(iso_time: str) -> str:
+                    """Convert UTC ISO time to MSK HH:MM format"""
+                    if not iso_time:
+                        return None
+                    # Парсим как UTC время
+                    utc_time = datetime.fromisoformat(iso_time.replace('Z', '+00:00'))
+                    if utc_time.tzinfo is None:
+                        utc_time = utc_time.replace(tzinfo=timezone.utc)
+                    # Конвертируем в MSK
+                    msk_time = utc_time + msk_offset
+                    return msk_time.strftime("%H:%M")
+
                 if emp["checkin_time"]:
-                    emp["checkin_time"] = datetime.fromisoformat(emp["checkin_time"]).strftime("%H:%M")
+                    emp["checkin_time"] = format_time_utc_to_msk(emp["checkin_time"])
                 if emp["checkout_time"]:
-                    emp["checkout_time"] = datetime.fromisoformat(emp["checkout_time"]).strftime("%H:%M")
+                    emp["checkout_time"] = format_time_utc_to_msk(emp["checkout_time"])
 
                 formatted_intervals = []
                 for interval in emp["intervals"]:
-                    start_fmt = datetime.fromisoformat(interval["start"]).strftime("%H:%M")
-                    end_fmt = datetime.fromisoformat(interval["end"]).strftime("%H:%M") if interval["end"] else None
+                    start_fmt = format_time_utc_to_msk(interval["start"])
+                    end_fmt = format_time_utc_to_msk(interval["end"]) if interval["end"] else None
                     formatted_intervals.append({"start": start_fmt, "end": end_fmt})
 
                 emp["intervals"] = formatted_intervals
@@ -1286,10 +1301,10 @@ class Database:
             cursor.execute("""
                 SELECT
                     date(ts) as work_date,
-                    strftime('%H:%M', MIN(CASE WHEN action = 'in' THEN ts END)) as checkin_time,
-                    strftime('%H:%M', MAX(CASE WHEN action = 'out' THEN ts END)) as checkout_time,
-                    ROUND((strftime('%s', MAX(CASE WHEN action = 'out' THEN ts END)) -
-                           strftime('%s', MIN(CASE WHEN action = 'in' THEN ts END))) / 3600.0, 2) as work_hours
+                    strftime('%H:%M', datetime(MIN(CASE WHEN action = 'in' THEN ts END), '+3 hours')) as checkin_time,
+                    strftime('%H:%M', datetime(MAX(CASE WHEN action = 'out' THEN ts END), '+3 hours')) as checkout_time,
+                    ROUND((strftime('%s', datetime(MAX(CASE WHEN action = 'out' THEN ts END), '+3 hours')) -
+                           strftime('%s', datetime(MIN(CASE WHEN action = 'in' THEN ts END), '+3 hours'))) / 3600.0, 2) as work_hours
                 FROM events
                 WHERE user_id = ? AND ts >= date('now', '-30 days')
                 GROUP BY date(ts)
