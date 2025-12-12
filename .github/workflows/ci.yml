@@ -1,5 +1,9 @@
 name: CI
 
+permissions:
+  contents: write     # required to create releases
+  packages: write     # push Docker images
+
 on:
   push:
     branches: [ main, master ]
