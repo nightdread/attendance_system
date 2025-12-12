@@ -59,7 +59,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64    # Multi-arch сборка
           push: true
+          cache-from: type=gha                  # Кеш сборки
+          cache-to: type=gha,mode=max          # Кеш сборки
+          attest: type=sbom                     # SBOM
+          provenance: true                     # Provenance
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
