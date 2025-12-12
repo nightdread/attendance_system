@@ -63,8 +63,9 @@ jobs:
           push: true
           cache-from: type=gha                  # Кеш сборки
           cache-to: type=gha,mode=max          # Кеш сборки
-          attest: type=sbom                     # SBOM
-          provenance: true                     # Provenance
+          attests: |
+            type=sbom
+            type=provenance
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
