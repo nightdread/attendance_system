@@ -29,7 +29,7 @@ services:
     depends_on:
       - redis
     volumes:
-      - ./attendance.db:/app/attendance.db
+      - ./attendance.db:/app/data/attendance.db
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
@@ -54,7 +54,7 @@ services:
       - attendance_app
     command: ["python", "bot/bot.py"]
     volumes:
-      - ./attendance.db:/app/attendance.db
+      - ./attendance.db:/app/data/attendance.db
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:

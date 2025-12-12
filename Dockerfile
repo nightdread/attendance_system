@@ -26,7 +26,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=builder /opt/venv /opt/venv
 COPY . .
 
-RUN mkdir -p /app/logs
+RUN mkdir -p /app/logs /app/data
 
 EXPOSE 8000
 
