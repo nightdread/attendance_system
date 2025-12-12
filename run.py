@@ -15,10 +15,11 @@ def main():
     print("=" * 50)
     
     # Проверка конфигурации
-    if not os.path.exists("config/config.py"):
-        print("❌ Файл config/config.py не найден!")
-        print("   Создайте его из config.example.py:")
-        print("   cp config.example.py config/config.py")
+    if not os.path.exists(".env"):
+        print("❌ Файл .env не найден!")
+        print("   Создайте его из .env.example:")
+        print("   cp .env.example .env")
+        print("   И заполните своими значениями")
         sys.exit(1)
     
     # Проверка зависимостей

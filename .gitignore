@@ -68,6 +68,7 @@ cookies.txt
 htmlcov/
 .tox/
 .cache
+**/.pytest_cache/
 
 # Redis dump
 dump.rdb

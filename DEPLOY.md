@@ -28,9 +28,9 @@ pip install -r requirements.txt
 ### 3. Настройка конфигурации
 
 ```bash
-# Скопируйте и отредактируйте конфигурацию
-cp config.example.py config/config.py
-nano config/config.py
+# Скопируйте и отредактируйте переменные окружения
+cp .env.example .env
+nano .env
 ```
 
 **Важные настройки для продакшн:**
