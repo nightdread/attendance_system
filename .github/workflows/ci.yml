@@ -3,6 +3,8 @@ name: CI
 permissions:
   contents: write     # required to create releases
   packages: write     # push Docker images
+  id-token: write     # required for provenance attestations
+  attestations: write # required for provenance attestations
 
 on:
   push:
@@ -38,6 +40,9 @@ jobs:
       IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/attendance_system
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
