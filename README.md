@@ -70,6 +70,24 @@ cp .env.example .env
 3. Скопируйте токен в `.env` как `BOT_TOKEN`
 4. Скопируйте username бота в `.env` как `BOT_USERNAME`
 
+### 3. Генерация секретных ключей
+Используйте скрипт генерации ключей:
+```bash
+./generate-keys.sh
+```
+
+Или сгенерируйте вручную:
+```bash
+# SECRET_KEY (64 символа)
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(64))"
+
+# API_KEY (32 символа) - опционально
+python3 -c "import secrets; print('API_KEY=' + secrets.token_urlsafe(32))"
+
+# JWT_SECRET_KEY (64 символа)
+python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(64))"
+```
+
 ## 🐳 Запуск через Docker
 
 ### Production (с Docker Hub)
