@@ -18,3 +18,4 @@ redis==5.0.1
 aioredis==2.0.1
 argon2-cffi==25.1.0
 itsdangerous==2.1.2
+apscheduler==3.10.4

@@ -379,6 +379,26 @@ class Database:
             ''')
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_open_sessions_older_than(self, hours: float) -> List[Dict[str, Any]]:
+        """Get users with open sessions (last event is 'in') older than specified hours"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # Get users with last event 'in' older than N hours
+            cursor.execute('''
+                SELECT e.*, p.fio, p.username, p.tg_user_id,
+                       (julianday('now') - julianday(e.ts)) * 24 as hours_open
+                FROM events e
+                JOIN people p ON e.user_id = p.tg_user_id
+                WHERE e.id IN (
+                    SELECT MAX(id)
+                    FROM events
+                    GROUP BY user_id
+                ) AND e.action = 'in'
+                AND (julianday('now') - julianday(e.ts)) * 24 >= ?
+                ORDER BY e.ts ASC
+            ''', (hours,))
+            return [dict(row) for row in cursor.fetchall()]
+
     def get_work_time(self, user_id: int, date: str) -> float:
         """Calculate work time for user on specific date (in hours)"""
         date_start = f"{date}T00:00:00"

@@ -1,5 +1,6 @@
 import logging
 import asyncio
+from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -9,6 +10,8 @@ from telegram.ext import (
     ContextTypes,
     filters
 )
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 import sys
 import os
@@ -23,8 +26,10 @@ from database import Database
 from utils.logger import bot_logger as logger
 
 class AttendanceBot:
-    def __init__(self):
+    def __init__(self, application=None):
         self.db = Database(str(DB_PATH))
+        self.application = application
+        self.reminder_sent = {}  # Track sent reminders: {user_id: message_id}
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -172,6 +177,11 @@ class AttendanceBot:
         user = update.effective_user
         data = query.data
 
+        # Handle reminder checkout (no token needed)
+        if data == "reminder_checkout":
+            await self.handle_reminder_checkout(update, context, user)
+            return
+
         try:
             action, token = data.split(':', 1)
         except ValueError:
@@ -257,12 +267,10 @@ class AttendanceBot:
                     timestamp = user_events[0]['ts'][:19].replace('T', ' ')
                 else:
                     # Fallback to current time if no events found
-                    from datetime import datetime
-                    timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
             except Exception as e:
                 logger.warning(f"Could not get timestamp for user {user.id}: {e}")
-                from datetime import datetime
-                timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
             await query.edit_message_text(
                 f"✅ Отмечено: {action_text}\n"
@@ -323,11 +331,133 @@ class AttendanceBot:
 
         await update.message.reply_text(text)
 
+    async def handle_reminder_checkout(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+        """Handle checkout from reminder button"""
+        query = update.callback_query
+        
+        # Get user info
+        person = self.db.get_person_by_tg_id(user.id)
+        if not person:
+            await query.edit_message_text("❌ Пользователь не найден.")
+            return
+
+        # Check if user has open session
+        last_events = self.db.get_user_events(user.id, limit=1)
+        if not last_events or last_events[0]["action"] != "in":
+            await query.edit_message_text(
+                "✅ У вас нет открытой сессии. Возможно, вы уже отметили уход."
+            )
+            # Clear reminder tracking
+            if user.id in self.reminder_sent:
+                del self.reminder_sent[user.id]
+            return
+
+        # Create checkout event
+        try:
+            self.db.create_event(
+                user_id=user.id,
+                location="global",
+                action="out",
+                username=user.username,
+                full_name=person['fio']
+            )
+
+            # Get timestamp
+            user_events = self.db.get_user_events(user.id, 1)
+            if user_events:
+                timestamp = user_events[0]['ts'][:19].replace('T', ' ')
+            else:
+                timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+            await query.edit_message_text(
+                f"✅ Уход отмечен!\n"
+                f"👤 {person['fio']}\n"
+                f"🕐 Время: {timestamp}\n\n"
+                f"💤 Хорошего отдыха!"
+            )
+
+            # Clear reminder tracking
+            if user.id in self.reminder_sent:
+                del self.reminder_sent[user.id]
+
+        except Exception as e:
+            logger.error(f"Error creating checkout event from reminder: {e}")
+            await query.edit_message_text("❌ Ошибка при сохранении события.")
+
+    async def check_and_send_reminders(self):
+        """Check for open sessions older than 8 hours and send reminders"""
+        if not self.application:
+            return
+
+        try:
+            # Get open sessions older than 8 hours
+            open_sessions = self.db.get_open_sessions_older_than(8.0)
+            
+            for session in open_sessions:
+                user_id = session['tg_user_id']
+                hours_open = session.get('hours_open', 0)
+                
+                # Skip if we already sent a reminder (to avoid spam)
+                if user_id in self.reminder_sent:
+                    continue
+
+                try:
+                    # Calculate time in MSK for display
+                    checkin_time = datetime.fromisoformat(session['ts'].replace('Z', '+00:00'))
+                    msk_time = checkin_time + timedelta(hours=3)
+                    time_str = msk_time.strftime('%H:%M')
+
+                    # Create reminder message with button
+                    reminder_text = (
+                        f"⏰ Напоминание\n\n"
+                        f"Вы отметили приход в {time_str}\n"
+                        f"Прошло уже {int(hours_open)} часов.\n\n"
+                        f"🏠 Не забыли отметить уход?"
+                    )
+
+                    keyboard = [[InlineKeyboardButton("✅ Да, ушел", callback_data="reminder_checkout")]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+
+                    # Send reminder
+                    message = await self.application.bot.send_message(
+                        chat_id=user_id,
+                        text=reminder_text,
+                        reply_markup=reply_markup
+                    )
+
+                    # Track sent reminder
+                    self.reminder_sent[user_id] = message.message_id
+                    logger.info(f"Sent reminder to user {user_id} ({session['fio']})")
+
+                except Exception as e:
+                    logger.error(f"Error sending reminder to user {user_id}: {e}")
+                    # If user blocked bot or error, remove from tracking
+                    if "blocked" in str(e).lower() or "chat not found" in str(e).lower():
+                        if user_id in self.reminder_sent:
+                            del self.reminder_sent[user_id]
+
+        except Exception as e:
+            logger.error(f"Error in check_and_send_reminders: {e}")
+
+    async def cleanup_old_reminders(self):
+        """Clean up reminder tracking for closed sessions"""
+        try:
+            open_sessions = self.db.get_currently_present()
+            open_user_ids = {session['tg_user_id'] for session in open_sessions}
+            
+            # Remove tracking for users who closed their session
+            closed_users = [uid for uid in self.reminder_sent.keys() if uid not in open_user_ids]
+            for uid in closed_users:
+                del self.reminder_sent[uid]
+                logger.debug(f"Cleaned up reminder tracking for user {uid}")
+
+        except Exception as e:
+            logger.error(f"Error in cleanup_old_reminders: {e}")
+
 def main():
     """Start the bot"""
-    bot = AttendanceBot()
-
     application = ApplicationBuilder().token(BOT_TOKEN).build()
+    bot = AttendanceBot(application=application)
 
     # Add handlers
     application.add_handler(CommandHandler("start", bot.start_command))
@@ -336,9 +466,30 @@ def main():
     application.add_handler(CallbackQueryHandler(bot.handle_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
 
+    # Setup scheduler for reminders
+    scheduler = AsyncIOScheduler()
+    # Check every 30 minutes for open sessions older than 8 hours
+    scheduler.add_job(
+        bot.check_and_send_reminders,
+        trigger=IntervalTrigger(minutes=30),
+        id='check_reminders',
+        replace_existing=True
+    )
+    # Cleanup reminder tracking every hour
+    scheduler.add_job(
+        bot.cleanup_old_reminders,
+        trigger=IntervalTrigger(hours=1),
+        id='cleanup_reminders',
+        replace_existing=True
+    )
+    scheduler.start()
+
     # Start the bot
-    logger.info("Starting bot...")
-    application.run_polling()
+    logger.info("Starting bot with reminder scheduler...")
+    try:
+        application.run_polling()
+    finally:
+        scheduler.shutdown()
 
 if __name__ == '__main__':
     main()
