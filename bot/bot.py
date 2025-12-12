@@ -1,7 +1,7 @@
 import logging
 import asyncio
 from datetime import datetime, timezone, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -30,6 +30,16 @@ class AttendanceBot:
         self.db = Database(str(DB_PATH))
         self.application = application
         self.reminder_sent = {}  # Track sent reminders: {user_id: message_id}
+        
+        # Main menu keyboard
+        self.main_keyboard = ReplyKeyboardMarkup(
+            [
+                [KeyboardButton("📋 Мои последние события"), KeyboardButton("🏢 Кто в офисе")],
+                [KeyboardButton("ℹ️ Помощь"), KeyboardButton("🔄 Обновить меню")]
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=False
+        )
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -45,9 +55,13 @@ class AttendanceBot:
             welcome_text = (
                 "👋 Привет! Это бот для учёта рабочего времени.\n\n"
                 "📱 Для отметки прихода/ухода отсканируйте QR-код у терминала на входе.\n\n"
-                f"🤖 Мой username: @{BOT_USERNAME}"
+                f"🤖 Мой username: @{BOT_USERNAME}\n\n"
+                "💡 Используйте кнопки меню ниже для быстрого доступа к функциям."
             )
-            await update.message.reply_text(welcome_text)
+            await update.message.reply_text(
+                welcome_text,
+                reply_markup=self.main_keyboard
+            )
 
     async def handle_token_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
         """Handle start with token"""
@@ -94,9 +108,26 @@ class AttendanceBot:
             )
 
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle text messages (for FIO input)"""
+        """Handle text messages (for FIO input and menu buttons)"""
         user = update.effective_user
         text = update.message.text.strip()
+
+        # Handle menu button clicks
+        if text == "📋 Мои последние события":
+            await self.my_last_command(update, context)
+            return
+        elif text == "🏢 Кто в офисе":
+            await self.who_here_command(update, context)
+            return
+        elif text == "ℹ️ Помощь":
+            await self.help_command(update, context)
+            return
+        elif text == "🔄 Обновить меню":
+            await update.message.reply_text(
+                "✅ Меню обновлено!",
+                reply_markup=self.main_keyboard
+            )
+            return
 
         # Check if user is in registration process
         if 'pending_registration' in context.user_data:
@@ -141,7 +172,8 @@ class AttendanceBot:
                         f"👤 Логин: {creds['username']}\n"
                         f"🔑 Пароль: {creds['password']}\n"
                         "💾 Сохраните пароль — он показывается один раз.\n"
-                        "🌐 Вход: откройте веб-панель и авторизуйтесь под этими данными."
+                        "🌐 Вход: откройте веб-панель и авторизуйтесь под этими данными.",
+                        reply_markup=self.main_keyboard
                     )
 
             except Exception as e:
@@ -291,14 +323,18 @@ class AttendanceBot:
         if not person:
             await update.message.reply_text(
                 "❌ Вы не зарегистрированы в системе.\n"
-                "📱 Отсканируйте QR-код у терминала для регистрации."
+                "📱 Отсканируйте QR-код у терминала для регистрации.",
+                reply_markup=self.main_keyboard
             )
             return
 
         events = self.db.get_user_events(user.id, limit=10)
 
         if not events:
-            await update.message.reply_text("📝 У вас пока нет событий.")
+            await update.message.reply_text(
+                "📝 У вас пока нет событий.",
+                reply_markup=self.main_keyboard
+            )
             return
 
         text = f"📋 Последние события для {person['fio']}:\n\n"
@@ -311,7 +347,10 @@ class AttendanceBot:
 
             text += f"{emoji} {time_str} - {location_display} ({action_text})\n"
 
-        await update.message.reply_text(text)
+        await update.message.reply_text(
+            text,
+            reply_markup=self.main_keyboard
+        )
 
     async def who_here_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show who is currently present (admin only)"""
@@ -329,7 +368,33 @@ class AttendanceBot:
             location_display = user['location'].replace('_', ' ').title()
             text += f"👤 {user['fio']} - {location_display} (с {time_str})\n"
 
-        await update.message.reply_text(text)
+        await update.message.reply_text(
+            text,
+            reply_markup=self.main_keyboard
+        )
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show help information"""
+        help_text = (
+            "📖 Помощь по использованию бота:\n\n"
+            "🔹 **Отметка прихода/ухода:**\n"
+            "   Отсканируйте QR-код у терминала на входе\n\n"
+            "🔹 **Команды:**\n"
+            "   /start - Начать работу с ботом\n"
+            "   /my_last - Показать последние события\n"
+            "   /who_here - Показать кто сейчас в офисе\n\n"
+            "🔹 **Кнопки меню:**\n"
+            "   📋 Мои последние события - История ваших отметок\n"
+            "   🏢 Кто в офисе - Список присутствующих\n"
+            "   ℹ️ Помощь - Эта справка\n"
+            "   🔄 Обновить меню - Обновить кнопки меню\n\n"
+            "💡 Используйте кнопки меню для быстрого доступа к функциям!"
+        )
+        await update.message.reply_text(
+            help_text,
+            reply_markup=self.main_keyboard,
+            parse_mode='Markdown'
+        )
 
     async def handle_reminder_checkout(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user):
         """Handle checkout from reminder button"""
@@ -463,6 +528,7 @@ def main():
     application.add_handler(CommandHandler("start", bot.start_command))
     application.add_handler(CommandHandler("my_last", bot.my_last_command))
     application.add_handler(CommandHandler("who_here", bot.who_here_command))
+    application.add_handler(CommandHandler("help", bot.help_command))
     application.add_handler(CallbackQueryHandler(bot.handle_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
 
