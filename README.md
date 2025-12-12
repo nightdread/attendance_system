@@ -28,7 +28,67 @@
 - **Database**: SQLite (файл `attendance.db`)
 - **Authentication**: JWT tokens
 
-## Установка и запуск (локально, без Docker)
+## 🚀 Быстрый старт
+
+### Docker (рекомендуется)
+```bash
+git clone <repository-url>
+cd attendance_system
+cp .env.example .env
+# Отредактируйте .env файл с вашими настройками
+docker compose up -d
+```
+
+Приложение: `http://localhost:8000`
+
+### Локальная разработка
+```bash
+git clone <repository-url>
+cd attendance_system
+cp .env.example .env
+# Отредактируйте .env файл
+python run.py
+```
+
+## 📋 Настройка
+
+### 1. Переменные окружения
+Скопируйте пример файла и заполните своими значениями:
+```bash
+cp .env.example .env
+```
+
+Обязательные переменные:
+- `SECRET_KEY` - секретный ключ для шифрования
+- `BOT_TOKEN` - токен Telegram бота от @BotFather
+- `BOT_USERNAME` - username бота
+- `WEB_PASSWORD` - пароль для веб-админки
+
+### 2. Создание Telegram бота
+1. Напишите [@BotFather](https://t.me/botfather)
+2. Создайте нового бота командой `/newbot`
+3. Скопируйте токен в `.env` как `BOT_TOKEN`
+4. Скопируйте username бота в `.env` как `BOT_USERNAME`
+
+## 🐳 Запуск через Docker
+
+### Production (с Docker Hub)
+```bash
+# Используйте готовый образ
+./deploy-remote.sh
+docker compose -f docker-compose.remote.yml up -d
+```
+
+### Development (локальная сборка)
+```bash
+# Сборка и запуск
+docker compose up -d
+
+# Или только сборка
+docker compose build
+```
+
+## 💻 Локальная установка (без Docker)
 
 1. Клонирование
    ```bash
@@ -38,34 +98,30 @@
 2. Виртуальное окружение и зависимости
    ```bash
    python -m venv .venv
-   source .venv/bin/activate
+   source .venv/bin/activate  # Linux/Mac
+   # или .venv\Scripts\activate в Windows
    pip install -r requirements.txt
    ```
-3. Обязательные переменные окружения
+3. Переменные окружения
    ```bash
-   export SECRET_KEY="your-secret"
-   export SESSION_SECRET_KEY="your-session-secret"   # опционально, иначе = SECRET_KEY
-   export DB_PATH="/app/attendance.db"               # опционально, путь до файла БД
-   export BOT_TOKEN="your-telegram-bot-token"
-   export BOT_USERNAME="your_bot_username"
-   export WEB_PASSWORD="strong-admin-password"
-   # опционально: export API_KEY="your_api_key"                  # для защиты API
-   # опционально: export REDIS_ENABLED=true REDIS_HOST=localhost REDIS_PORT=6379
-   # опционально: export JWT_SECRET_KEY="your-jwt-secret"       # иначе = SECRET_KEY
-   # опционально: export JWT_SECRET_KEY_PREV="previous-jwt-key" # для плавной ротации
+   cp .env.example .env
+   # Отредактируйте .env файл
    ```
 4. Запуск
-   - Backend:
-     ```bash
-     source .venv/bin/activate
-     python backend/main.py
-     ```
-   - Бот (в отдельном терминале):
-     ```bash
-     source .venv/bin/activate
-     python bot/bot.py
-     ```
-   Приложение: `http://localhost:8000`
+   ```bash
+   python run.py  # Запускает backend + bot одновременно
+   ```
+
+   Или по отдельности:
+   ```bash
+   # Backend (терминал 1)
+   python backend/main.py
+
+   # Bot (терминал 2)
+   python bot/bot.py
+   ```
+
+Приложение: `http://localhost:8000`
 
 ## Запуск через Docker (при необходимости)
 - Установите переменные окружения (как выше), при использовании `docker-compose` добавьте их в `.env`.
