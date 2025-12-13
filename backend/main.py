@@ -15,7 +15,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from config import (
-    BOT_USERNAME, WEB_USERNAME, WEB_PASSWORD,
+    BOT_USERNAME,
     API_HOST, API_PORT, QR_UPDATE_INTERVAL, SECRET_KEY, SESSION_SECRET_KEY, API_KEY, DB_PATH
 )
 from database import Database
