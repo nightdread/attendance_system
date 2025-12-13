@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import secrets
 import os
+import sys
 from pathlib import Path
 from utils.cache import (
     get_cached_token, set_cached_token, invalidate_token,
@@ -163,20 +164,43 @@ class Database:
                 from utils.logger import logger
 
                 now = datetime.utcnow().isoformat()
-                # Use fixed default passwords for initial setup
+                # Generate random passwords for initial setup
                 defaults = [
-                    ("admin", "admin123", "System Administrator", "admin"),
-                    ("manager", "manager123", "Manager User", "manager"),
-                    ("hr", "hr123", "HR User", "hr"),
+                    ("admin", "System Administrator", "admin"),
+                    ("manager", "Manager User", "manager"),
+                    ("hr", "HR User", "hr"),
                 ]
 
                 creds = []
-                logger.info("=" * 60)
-                logger.info("INIT: Creating default users (empty DB detected)")
-                logger.info(f"INIT: Generated at: {now}")
-                logger.info("-" * 60)
                 
-                for username, password_plain, full_name, role in defaults:
+                # Use sys.stdout directly for guaranteed output to docker logs
+                def log_init(message):
+                    """Log INIT message to both logger and stdout/stderr for visibility"""
+                    logger.info(message)
+                    # Write to both stdout and stderr to ensure Docker captures it
+                    sys.stdout.write(message + "\n")
+                    sys.stdout.flush()
+                    sys.stderr.write(message + "\n")
+                    sys.stderr.flush()
+                
+                # Also save credentials to a file for easy retrieval
+                creds_file = Path(self.db_path).parent / "initial_credentials.txt"
+                
+                # Log header
+                log_init("=" * 70)
+                log_init("INIT: Creating default users (empty DB detected)")
+                log_init(f"INIT: Generated at: {now}")
+                log_init("-" * 70)
+                
+                creds_lines = []
+                creds_lines.append("=" * 70)
+                creds_lines.append("INITIAL USER CREDENTIALS - SAVE THESE PASSWORDS!")
+                creds_lines.append(f"Generated at: {now}")
+                creds_lines.append("-" * 70)
+                
+                for username, full_name, role in defaults:
+                    # Generate random password (16 characters, URL-safe)
+                    password_plain = secrets.token_urlsafe(12)
                     password_hash = JWTHandler.get_password_hash(password_plain)
                     permissions = json.dumps(USER_ROLES[role]["permissions"])
                     cursor.execute(
@@ -184,26 +208,33 @@ class Database:
                         (username, password_hash, full_name, role, permissions, now)
                     )
                     creds.append((username, password_plain, role))
-                    logger.info(f"INIT: Created user - username={username} role={role} password={password_plain}")
+                    # Log each user with password - CRITICAL INFO for first run
+                    user_msg = f"INIT: Created user - username={username} role={role} password={password_plain}"
+                    logger.info(user_msg)
+                    log_init(user_msg)
+                    creds_lines.append(f"Username: {username}")
+                    creds_lines.append(f"Password: {password_plain}")
+                    creds_lines.append(f"Role: {role}")
+                    creds_lines.append("-" * 70)
                 
-                logger.info("=" * 60)
-                logger.info("INIT: Default users created successfully")
-                logger.info("INIT: Please change passwords after first login!")
-                logger.info("=" * 60)
+                # Save credentials to file
+                try:
+                    with open(creds_file, 'w') as f:
+                        f.write("\n".join(creds_lines))
+                        f.write("\n" + "=" * 70 + "\n")
+                    log_init(f"INIT: Credentials saved to {creds_file}")
+                except Exception as e:
+                    logger.warning(f"Could not save credentials file: {e}")
+                
+                # Log footer
+                log_init("-" * 70)
+                log_init("INIT: Default users created successfully")
+                log_init("INIT: Please save these credentials and change passwords after first login!")
+                log_init(f"INIT: Credentials also saved to: {creds_file}")
+                log_init("=" * 70)
 
                 # Store for one-time display (not persisted)
                 self.initial_credentials = creds
-                
-                # Also print to stdout for Docker logs
-                print("=" * 60)
-                print("INIT: Default users created (empty DB detected)")
-                print(f"INIT: Generated at: {now}")
-                print("-" * 60)
-                for u, p, r in creds:
-                    print(f"INIT: username={u} role={r} password={p}")
-                print("=" * 60)
-                print("INIT: Please change passwords after first login!")
-                print("=" * 60)
             else:
                 self.initial_credentials = []
 
