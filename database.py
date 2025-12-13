@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 import secrets
+import os
+from pathlib import Path
 from utils.cache import (
     get_cached_token, set_cached_token, invalidate_token,
     get_cached_analytics_daily, set_cached_analytics_daily,
@@ -19,7 +21,16 @@ class Database:
     def __init__(self, db_path: str = "attendance.db"):
         self.db_path = db_path
         self.initial_credentials = []  # runtime-only: show once in admin UI
+        self._ensure_db_directory()
         self.init_db()
+    
+    def _ensure_db_directory(self):
+        """Ensure the directory for database file exists"""
+        db_path_obj = Path(self.db_path)
+        db_dir = db_path_obj.parent
+        # Create directory if it's not root or current directory
+        if str(db_dir) not in ('.', '/'):
+            db_dir.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
     def get_connection(self):
@@ -149,17 +160,23 @@ class Database:
             has_users = cursor.fetchone()[0] > 0
             if not has_users:
                 from auth.jwt_handler import JWTHandler
+                from utils.logger import logger
 
                 now = datetime.utcnow().isoformat()
+                # Use fixed default passwords for initial setup
                 defaults = [
-                    ("admin", "Administrator", "admin"),
-                    ("manager", "Manager User", "manager"),
-                    ("hr", "HR User", "hr"),
+                    ("admin", "admin123", "System Administrator", "admin"),
+                    ("manager", "manager123", "Manager User", "manager"),
+                    ("hr", "hr123", "HR User", "hr"),
                 ]
 
                 creds = []
-                for username, full_name, role in defaults:
-                    password_plain = secrets.token_urlsafe(10)
+                logger.info("=" * 60)
+                logger.info("INIT: Creating default users (empty DB detected)")
+                logger.info(f"INIT: Generated at: {now}")
+                logger.info("-" * 60)
+                
+                for username, password_plain, full_name, role in defaults:
                     password_hash = JWTHandler.get_password_hash(password_plain)
                     permissions = json.dumps(USER_ROLES[role]["permissions"])
                     cursor.execute(
@@ -167,15 +184,26 @@ class Database:
                         (username, password_hash, full_name, role, permissions, now)
                     )
                     creds.append((username, password_plain, role))
+                    logger.info(f"INIT: Created user - username={username} role={role} password={password_plain}")
+                
+                logger.info("=" * 60)
+                logger.info("INIT: Default users created successfully")
+                logger.info("INIT: Please change passwords after first login!")
+                logger.info("=" * 60)
 
                 # Store for one-time display (not persisted)
                 self.initial_credentials = creds
-
-                # Print generated credentials to stdout (not stored in container)
-                print("[INIT] Default users created (empty DB detected):")
-                print(f"[INIT] Generated at: {now}")
+                
+                # Also print to stdout for Docker logs
+                print("=" * 60)
+                print("INIT: Default users created (empty DB detected)")
+                print(f"INIT: Generated at: {now}")
+                print("-" * 60)
                 for u, p, r in creds:
-                    print(f"[INIT] user={u} role={r} password={p}")
+                    print(f"INIT: username={u} role={r} password={p}")
+                print("=" * 60)
+                print("INIT: Please change passwords after first login!")
+                print("=" * 60)
             else:
                 self.initial_credentials = []
 
