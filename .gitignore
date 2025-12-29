@@ -99,4 +99,7 @@ dump.rdb
 *.egg-info/
 dist/
 build/
-# IMPROVEMENTS.md - internal development file
+
+# Documentation (keep only README.md)
+*.md
+!README.md

@@ -156,3 +156,161 @@ def log_error(error: Exception | str, context: str = ""):
 def log_performance(operation: str, duration: float, details: str = ""):
     """Log performance metrics"""
     logger.info(f"PERF: {operation} took {duration:.3f}s {details}")
+
+def log_security_event(
+    event_type: str,
+    description: str,
+    user: str = None,
+    ip_address: str = None,
+    details: dict = None,
+    severity: str = "INFO"
+):
+    """
+    Log security-related events
+    
+    Args:
+        event_type: Type of security event (e.g., "LOGIN_FAILED", "ROLE_CHANGED", "SUSPICIOUS_ACTIVITY")
+        description: Human-readable description
+        user: Username or user ID
+        ip_address: Client IP address
+        details: Additional details as dictionary
+        severity: Log level (INFO, WARNING, ERROR, CRITICAL)
+    """
+    level = getattr(logging, severity.upper(), logging.INFO)
+    
+    log_data = {
+        "event_type": event_type,
+        "description": description,
+    }
+    
+    if user:
+        log_data["user"] = user
+    if ip_address:
+        log_data["ip_address"] = ip_address
+    if details:
+        log_data.update(details)
+    
+    # Format as structured log
+    details_str = ", ".join([f"{k}={v}" for k, v in log_data.items() if k != "event_type" and k != "description"])
+    message = f"SECURITY [{event_type}]: {description}"
+    if details_str:
+        message += f" ({details_str})"
+    
+    logger.log(level, message)
+
+def log_failed_login(username: str, ip_address: str, reason: str = "Invalid credentials"):
+    """Log failed login attempt"""
+    log_security_event(
+        event_type="LOGIN_FAILED",
+        description=f"Failed login attempt for user '{username}'",
+        user=username,
+        ip_address=ip_address,
+        details={"reason": reason},
+        severity="WARNING"
+    )
+
+def log_successful_login(username: str, ip_address: str, role: str = None):
+    """Log successful login"""
+    details = {}
+    if role:
+        details["role"] = role
+    log_security_event(
+        event_type="LOGIN_SUCCESS",
+        description=f"Successful login for user '{username}'",
+        user=username,
+        ip_address=ip_address,
+        details=details,
+        severity="INFO"
+    )
+
+def log_role_change(changed_by: str, target_user: str, old_role: str, new_role: str, ip_address: str = None):
+    """Log role/permission change"""
+    log_security_event(
+        event_type="ROLE_CHANGED",
+        description=f"User '{changed_by}' changed role of '{target_user}' from '{old_role}' to '{new_role}'",
+        user=changed_by,
+        ip_address=ip_address,
+        details={
+            "target_user": target_user,
+            "old_role": old_role,
+            "new_role": new_role
+        },
+        severity="WARNING"
+    )
+
+def log_permission_change(changed_by: str, target_user: str, changes: dict, ip_address: str = None):
+    """Log permission changes"""
+    log_security_event(
+        event_type="PERMISSION_CHANGED",
+        description=f"User '{changed_by}' changed permissions for '{target_user}'",
+        user=changed_by,
+        ip_address=ip_address,
+        details={
+            "target_user": target_user,
+            "changes": changes
+        },
+        severity="WARNING"
+    )
+
+def log_suspicious_activity(activity_type: str, description: str, ip_address: str = None, user: str = None, details: dict = None):
+    """Log suspicious activity"""
+    log_security_event(
+        event_type="SUSPICIOUS_ACTIVITY",
+        description=description,
+        user=user,
+        ip_address=ip_address,
+        details=details or {},
+        severity="WARNING"
+    )
+
+def log_data_export(user: str, export_type: str, record_count: int = None, ip_address: str = None):
+    """Log data export events"""
+    details = {"export_type": export_type}
+    if record_count is not None:
+        details["record_count"] = record_count
+    log_security_event(
+        event_type="DATA_EXPORT",
+        description=f"User '{user}' exported {export_type} data",
+        user=user,
+        ip_address=ip_address,
+        details=details,
+        severity="INFO"
+    )
+
+def log_rate_limit_exceeded(endpoint: str, ip_address: str, attempts: int = None):
+    """Log rate limit exceeded"""
+    details = {"endpoint": endpoint}
+    if attempts:
+        details["attempts"] = attempts
+    log_security_event(
+        event_type="RATE_LIMIT_EXCEEDED",
+        description=f"Rate limit exceeded for endpoint '{endpoint}' from IP '{ip_address}'",
+        ip_address=ip_address,
+        details=details,
+        severity="WARNING"
+    )
+
+def log_csrf_failure(endpoint: str, ip_address: str, user: str = None):
+    """Log CSRF token validation failure"""
+    log_security_event(
+        event_type="CSRF_FAILED",
+        description=f"CSRF token validation failed for endpoint '{endpoint}'",
+        user=user,
+        ip_address=ip_address,
+        details={"endpoint": endpoint},
+        severity="WARNING"
+    )
+
+def log_unauthorized_access(attempted_resource: str, user: str = None, ip_address: str = None, reason: str = None):
+    """Log unauthorized access attempt"""
+    details = {"resource": attempted_resource}
+    if reason:
+        details["reason"] = reason
+    log_security_event(
+        event_type="UNAUTHORIZED_ACCESS",
+        description=f"Unauthorized access attempt to '{attempted_resource}'",
+        user=user,
+        ip_address=ip_address,
+        details=details,
+        severity="WARNING"
+    )

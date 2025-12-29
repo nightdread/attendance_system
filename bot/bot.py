@@ -21,9 +21,10 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, current_dir)
 
-from config.config import BOT_TOKEN, BOT_USERNAME, DB_PATH
+from config.config import BOT_TOKEN, BOT_USERNAME, DB_PATH, TIMEZONE, TIMEZONE_OFFSET_HOURS
 from database import Database
 from utils.logger import bot_logger as logger
+from utils.validators import validate_fio, sanitize_string
 
 class AttendanceBot:
     def __init__(self, application=None):
@@ -41,6 +42,35 @@ class AttendanceBot:
             resize_keyboard=True,
             one_time_keyboard=False
         )
+
+    @staticmethod
+    def utc_to_local(utc_time_str: str) -> str:
+        """Convert UTC time string to local timezone (automatically detected)"""
+        try:
+            # Parse UTC time
+            if 'T' in utc_time_str:
+                dt = datetime.fromisoformat(utc_time_str.replace('Z', '+00:00'))
+            else:
+                # If format is 'YYYY-MM-DD HH:MM:SS', assume UTC
+                dt = datetime.strptime(utc_time_str, '%Y-%m-%d %H:%M:%S')
+                dt = dt.replace(tzinfo=timezone.utc)
+            
+            # Convert to local timezone
+            local_time = dt.astimezone(TIMEZONE)
+            return local_time.strftime('%Y-%m-%d %H:%M:%S')
+        except Exception as e:
+            # Fallback to simple offset if timezone conversion fails
+            try:
+                if 'T' in utc_time_str:
+                    dt = datetime.fromisoformat(utc_time_str.replace('Z', '+00:00'))
+                else:
+                    dt = datetime.strptime(utc_time_str, '%Y-%m-%d %H:%M:%S')
+                    dt = dt.replace(tzinfo=timezone.utc)
+                local_time = dt + timedelta(hours=TIMEZONE_OFFSET_HOURS)
+                return local_time.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                # If all parsing fails, return original
+                return utc_time_str
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -138,9 +168,11 @@ class AttendanceBot:
             registration_data = context.user_data['pending_registration']
 
             # Validate FIO
-            if len(text) < 3:
+            text = sanitize_string(text, max_length=200)
+            is_valid, error_msg = validate_fio(text)
+            if not is_valid:
                 await update.message.reply_text(
-                    "❌ ФИО слишком короткое. Пожалуйста, введите полное имя:"
+                    f"❌ {error_msg}\nПожалуйста, введите ваше ФИО:"
                 )
                 return
 
@@ -300,13 +332,16 @@ class AttendanceBot:
             try:
                 user_events = self.db.get_user_events(user.id, 1)
                 if user_events:
-                    timestamp = user_events[0]['ts'][:19].replace('T', ' ')
+                    utc_timestamp = user_events[0]['ts'][:19].replace('T', ' ')
+                    timestamp = self.utc_to_local(utc_timestamp)
                 else:
                     # Fallback to current time if no events found
-                    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                    utc_now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                    timestamp = self.utc_to_local(utc_now)
             except Exception as e:
                 logger.warning(f"Could not get timestamp for user {user.id}: {e}")
-                timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                utc_now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                timestamp = self.utc_to_local(utc_now)
 
             await query.edit_message_text(
                 f"✅ Отмечено: {action_text}\n"
@@ -344,7 +379,8 @@ class AttendanceBot:
         text = f"📋 Последние события для {person['fio']}:\n\n"
 
         for event in events:
-            time_str = event['ts'][:19].replace('T', ' ')
+            utc_time_str = event['ts'][:19].replace('T', ' ')
+            time_str = self.utc_to_local(utc_time_str)
             location_display = event['location'].replace('_', ' ').title()
             action_text = "Пришёл" if event['action'] == 'in' else "Ушёл"
             emoji = "✅" if event['action'] == 'in' else "🚪"
@@ -368,7 +404,8 @@ class AttendanceBot:
         text = "🏢 Сейчас в офисе:\n\n"
 
         for user in present_users:
-            time_str = user['ts'][:19].replace('T', ' ')
+            utc_time_str = user['ts'][:19].replace('T', ' ')
+            time_str = self.utc_to_local(utc_time_str)
             location_display = user['location'].replace('_', ' ').title()
             text += f"👤 {user['fio']} - {location_display} (с {time_str})\n"
 
@@ -505,9 +542,11 @@ class AttendanceBot:
             # Get timestamp
             user_events = self.db.get_user_events(user.id, 1)
             if user_events:
-                timestamp = user_events[0]['ts'][:19].replace('T', ' ')
+                utc_timestamp = user_events[0]['ts'][:19].replace('T', ' ')
+                timestamp = self.utc_to_local(utc_timestamp)
             else:
-                timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                utc_now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                timestamp = self.utc_to_local(utc_now)
 
             await query.edit_message_text(
                 f"✅ Уход отмечен!\n"
@@ -542,10 +581,10 @@ class AttendanceBot:
                     continue
 
                 try:
-                    # Calculate time in MSK for display
+                    # Calculate time in local timezone for display
                     checkin_time = datetime.fromisoformat(session['ts'].replace('Z', '+00:00'))
-                    msk_time = checkin_time + timedelta(hours=3)
-                    time_str = msk_time.strftime('%H:%M')
+                    local_time = checkin_time.astimezone(TIMEZONE)
+                    time_str = local_time.strftime('%H:%M')
 
                     # Create reminder message with button
                     reminder_text = (

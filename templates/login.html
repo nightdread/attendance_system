@@ -122,6 +122,9 @@
         <h1>Система учета времени</h1>
         <form method="post">
             <input type="hidden" name="next_url" value="{{ next_url or '/terminal' }}">
+            {% if csrf_token %}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% endif %}
             <div class="form-group">
                 <label for="username">Логин:</label>
                 <input type="text" id="username" name="username" required>

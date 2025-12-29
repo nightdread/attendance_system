@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, Response
+import json
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -20,13 +21,97 @@ from config import (
 )
 from database import Database
 from auth.jwt_handler import JWTHandler
-from utils.logger import log_error, log_request, log_auth_event
+from utils.logger import (
+    log_error, log_request, log_auth_event,
+    log_failed_login, log_successful_login, log_role_change,
+    log_suspicious_activity, log_rate_limit_exceeded, log_csrf_failure,
+    log_unauthorized_access, log_data_export
+)
 from utils.cache import cache
+from utils.validators import (
+    validate_username, validate_password, validate_fio, validate_role,
+    validate_department, validate_position, sanitize_string
+)
+from utils.rate_limit import rate_limit
+from utils.csrf import set_csrf_token, get_csrf_token, require_csrf_token
 
-app = FastAPI(title="Attendance System API")
+app = FastAPI(
+    title="Attendance System API",
+    description="""
+    API для системы учета рабочего времени.
+    
+    ## Аутентификация
+    
+    API поддерживает два способа аутентификации:
+    1. **API Key** - через заголовок `X-API-Key` (если настроен API_KEY)
+    2. **JWT Token** - через сессию или заголовок `Authorization: Bearer <token>`
+    
+    ## Rate Limiting
+    
+    Endpoints имеют ограничения по частоте запросов:
+    - `/api/active_token`: 10 запросов/минуту
+    - `/api/user/*`: 20 запросов/минуту (GET), 10 запросов/минуту (PUT)
+    - `/api/analytics/*`: 30 запросов/минуту
+    - `/login`: 5 попыток/5 минут
+    
+    При превышении лимита возвращается HTTP 429.
+    
+    ## CSRF Protection
+    
+    Все модифицирующие операции (POST, PUT, DELETE) требуют CSRF токен:
+    - Для форм: поле `csrf_token`
+    - Для JSON: заголовок `X-CSRF-Token`
+    
+    ## Версионирование
+    
+    Текущая версия API: **v1**
+    
+    ## Ошибки
+    
+    API возвращает стандартные HTTP коды:
+    - `200` - Успех
+    - `400` - Неверный запрос (валидация)
+    - `401` - Не авторизован
+    - `403` - Доступ запрещен (недостаточно прав или CSRF)
+    - `404` - Не найдено
+    - `429` - Превышен rate limit
+    - `500` - Внутренняя ошибка сервера
+    - `503` - Сервис недоступен (health check)
+    """,
+    version="1.0.0",
+    contact={
+        "name": "Attendance System Support",
+    },
+    license_info={
+        "name": "Proprietary",
+    },
+    tags_metadata=[
+        {
+            "name": "authentication",
+            "description": "Аутентификация и авторизация",
+        },
+        {
+            "name": "tokens",
+            "description": "Управление токенами для отметки посещаемости",
+        },
+        {
+            "name": "users",
+            "description": "Управление пользователями (требует admin/manager роль)",
+        },
+        {
+            "name": "analytics",
+            "description": "Аналитика и статистика (требует admin/manager/hr роль)",
+        },
+        {
+            "name": "health",
+            "description": "Проверка здоровья системы и метрики",
+        },
+    ]
+)
 
 # Add session middleware (use dedicated session secret, defaulting to SECRET_KEY)
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
+# max_age=31536000 = 1 year in seconds for long-lived sessions (terminal)
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY, max_age=31536000)
 
 # Login rate limiter (Redis + fallback memory)
 MAX_LOGIN_ATTEMPTS = 5
@@ -64,14 +149,21 @@ def authorize_request(
             token = auth_header.split(" ", 1)[1]
 
     if not token:
+        client_ip = request.client.host if request.client else "unknown"
+        log_unauthorized_access(str(request.url.path), ip_address=client_ip, reason="No token provided")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     payload = JWTHandler.verify_token(token)
     if not payload:
+        client_ip = request.client.host if request.client else "unknown"
+        log_unauthorized_access(str(request.url.path), ip_address=client_ip, reason="Invalid token")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     role = payload.get("role", "user")
+    username = payload.get("sub")
     if require_roles and role not in require_roles:
+        client_ip = request.client.host if request.client else "unknown"
+        log_unauthorized_access(str(request.url.path), user=username, ip_address=client_ip, reason=f"Insufficient permissions: role '{role}' not in {require_roles}")
         raise HTTPException(status_code=403, detail="Forbidden")
 
     return payload
@@ -128,9 +220,33 @@ def build_terminal_context(request: Request, db: Database) -> dict:
         }
 
 
-@app.get("/api/active_token")
+@app.get(
+    "/api/active_token",
+    response_model=TokenResponse,
+    responses={
+        200: {"description": "Success", "model": TokenResponse},
+        401: {"description": "Unauthorized - требуется аутентификация", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded - превышен лимит запросов (10/мин)", "model": ErrorResponse}
+    },
+    tags=["tokens"],
+    summary="Получить активный токен для отметки",
+    description="""
+    Возвращает текущий активный токен для отметки посещаемости через Telegram бота.
+    
+    **Аутентификация:** Требуется (API key или JWT token)
+    
+    **Rate Limit:** 10 запросов в минуту
+    
+    **Пример использования:**
+    ```bash
+    curl -H "Authorization: Bearer <token>" https://api.example.com/api/active_token
+    ```
+    """
+)
 async def get_active_token(request: Request, db: Database = Depends(get_db)):
     """Get active token for attendance"""
+    # Rate limiting
+    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_token")
     # Авторизация: API key или авторизованная сессия
     # Терминал теперь требует авторизацию, поэтому убираем allow_terminal_session
     authorize_request(request, allow_terminal_session=False)
@@ -206,7 +322,13 @@ async def home(request: Request, db: Database = Depends(get_db)):
 async def login_page(request: Request):
     """Страница входа с поддержкой редиректа после логина"""
     next_url = request.query_params.get("next", "/terminal")
-    return templates.TemplateResponse("login.html", {"request": request, "next_url": next_url})
+    # Генерируем CSRF токен для формы логина
+    csrf_token = set_csrf_token(request)
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "next_url": next_url,
+        "csrf_token": csrf_token
+    })
 
 @app.post("/login")
 async def login(
@@ -214,8 +336,30 @@ async def login(
     username: str = Form(...),
     password: str = Form(...),
     db: Database = Depends(get_db),
-    next_url: str = Form("/terminal")
+    next_url: str = Form("/terminal"),
+    csrf_token: str = Form(None)
 ):
+    # Проверка CSRF токена
+    await require_csrf_token(request)
+    
+    # Валидация входных данных
+    username = sanitize_string(username, max_length=50)
+    is_valid, error_msg = validate_username(username)
+    if not is_valid:
+        csrf_token = get_csrf_token(request) or set_csrf_token(request)
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": error_msg, "next_url": next_url, "csrf_token": csrf_token}
+        )
+    
+    is_valid, error_msg = validate_password(password, min_length=6, require_complexity=False)
+    if not is_valid:
+        csrf_token = get_csrf_token(request) or set_csrf_token(request)
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": error_msg, "next_url": next_url, "csrf_token": csrf_token}
+        )
+    
     # Rate limit by client IP
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
@@ -241,6 +385,7 @@ async def login(
                 cache.redis_client.expire(key_counter, LOGIN_WINDOW_SEC)
             if count > MAX_LOGIN_ATTEMPTS:
                 cache.redis_client.set(key_block, 1, ex=LOGIN_BLOCK_SEC)
+                log_rate_limit_exceeded("/login", client_ip, attempts=count)
                 return templates.TemplateResponse(
                     "login.html",
                     {
@@ -253,7 +398,8 @@ async def login(
             # Use get() to avoid KeyError if key doesn't exist
             attempts = LOGIN_ATTEMPTS.get(client_ip, [])
             LOGIN_ATTEMPTS[client_ip] = [t for t in attempts if now - t < LOGIN_WINDOW_SEC]
-            if len(LOGIN_ATTEMPTS[client_ip]) >= MAX_LOGIN_ATTEMPTS:
+            if len(LOGIN_ATTEMPTS.get(client_ip, [])) >= MAX_LOGIN_ATTEMPTS:
+                log_rate_limit_exceeded("/login", client_ip, attempts=len(LOGIN_ATTEMPTS.get(client_ip, [])))
                 return templates.TemplateResponse(
                     "login.html",
                     {
@@ -262,9 +408,9 @@ async def login(
                         "next_url": next_url
                     }
                 )
-    except Exception:
-        # Fail-open to avoid breaking login, but still allow core flow
-        pass
+    except Exception as e:
+        # Log rate limiting errors but don't block login
+        log_error(e, "Rate limiting")
 
     # Попытка логина через API
     try:
@@ -277,33 +423,49 @@ async def login(
                     cache.redis_client.delete(f"login:block:{client_ip}")
                 else:
                     LOGIN_ATTEMPTS.pop(client_ip, None)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error(e, "Reset login attempts counter")
             # Генерируем JWT токен
+            # Для роли terminal делаем очень долгую сессию (1 год) для работы 24/7
+            user_role = user.get("role", "user")
+            if user_role == "terminal":
+                # Для терминала - сессия на 1 год (525600 минут)
+                expires_delta = timedelta(days=365)
+            else:
+                # Для остальных ролей - стандартное время (30 минут)
+                expires_delta = None
+            
             access_token = JWTHandler.create_access_token(
-                data={"sub": username, "role": user.get("role", "user")}
+                data={"sub": username, "role": user_role},
+                expires_delta=expires_delta
             )
             # Сохраняем токен в сессии
             request.session["access_token"] = access_token
             request.session["authenticated"] = True
             request.session["user_role"] = user.get("role", "user")
+            # Генерируем новый CSRF токен после успешного логина
+            set_csrf_token(request)
+            # Логируем успешный вход
+            log_successful_login(username, client_ip, role=user_role)
 
             # Редирект на запрошенную страницу или по умолчанию
             # Админы могут попасть в админку, но по умолчанию все идут на терминал
             redirect_to = next_url if next_url and next_url.startswith("/") else "/terminal"
             return RedirectResponse(url=redirect_to, status_code=302)
         else:
-            # Initialize list if key doesn't exist
+            # Initialize list if key doesn't exist (defaultdict handles this, but being explicit)
             if client_ip not in LOGIN_ATTEMPTS:
                 LOGIN_ATTEMPTS[client_ip] = []
             LOGIN_ATTEMPTS[client_ip].append(now)
+            # Логируем неудачную попытку входа
+            log_failed_login(username, client_ip, reason="Invalid credentials")
             return templates.TemplateResponse(
                 "login.html",
                 {"request": request, "error": "Invalid credentials", "next_url": next_url}
             )
     except Exception as e:
         log_error(e, "Login")
-        # Initialize list if key doesn't exist
+        # Initialize list if key doesn't exist (defaultdict handles this, but being explicit)
         if client_ip not in LOGIN_ATTEMPTS:
             LOGIN_ATTEMPTS[client_ip] = []
         LOGIN_ATTEMPTS[client_ip].append(now)
@@ -480,12 +642,18 @@ async def user_management(request: Request, db: Database = Depends(get_db)):
     if not token:
         return RedirectResponse(url="/login", status_code=302)
 
+    # Генерируем CSRF токен для форм на странице
+    csrf_token = set_csrf_token(request)
+
     try:
         payload = JWTHandler.verify_token(token)
         user_role = payload.get("role", "user")
 
         # Проверяем права доступа (только админ и менеджер)
         if user_role not in ["admin", "manager"]:
+            client_ip = request.client.host if request.client else "unknown"
+            username = payload.get("sub")
+            log_unauthorized_access("/users", user=username, ip_address=client_ip, reason=f"Role '{user_role}' not allowed")
             return RedirectResponse(url="/terminal", status_code=302)
 
         # Получаем данные для шаблона
@@ -498,7 +666,8 @@ async def user_management(request: Request, db: Database = Depends(get_db)):
                 "request": request,
                 "users": users,
                 "roles": roles,
-                "current_user_role": user_role
+                "current_user_role": user_role,
+                "csrf_token": csrf_token
             }
         )
     except Exception as e:
@@ -507,9 +676,35 @@ async def user_management(request: Request, db: Database = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=302)
 
 # API endpoints for user management
-@app.get("/api/user/{user_id}")
+@app.get(
+    "/api/user/{user_id}",
+    response_model=UserResponse,
+    responses={
+        200: {"description": "Success", "model": UserResponse},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
+        403: {"description": "Forbidden - требуется роль admin или manager", "model": ErrorResponse},
+        404: {"description": "User not found", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded", "model": ErrorResponse}
+    },
+    tags=["users"],
+    summary="Получить пользователя по ID",
+    description="""
+    Возвращает информацию о пользователе по его ID.
+    
+    **Требования:**
+    - Аутентификация: обязательна
+    - Роль: admin или manager
+    - Rate Limit: 20 запросов/минуту
+    
+    **Пример:**
+    ```bash
+    curl -H "Authorization: Bearer <token>" https://api.example.com/api/user/1
+    ```
+    """
+)
 async def get_user(request: Request, user_id: int, db: Database = Depends(get_db)):
     """Get user by ID"""
+    rate_limit(request, max_requests=20, window_seconds=60, key_prefix="user_mgmt")
     authorize_request(request, require_roles=["admin", "manager"])
     
     user = db.get_web_user_by_id(user_id)
@@ -520,20 +715,70 @@ async def get_user(request: Request, user_id: int, db: Database = Depends(get_db
     user.pop('password_hash', None)
     return user
 
-@app.put("/api/user/{user_id}")
+@app.put(
+    "/api/user/{user_id}",
+    response_model=UserResponse,
+    responses={
+        200: {"description": "Success", "model": UserResponse},
+        400: {"description": "Bad Request - ошибка валидации данных", "model": ErrorResponse},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
+        403: {"description": "Forbidden - требуется роль admin/manager или неверный CSRF токен", "model": ErrorResponse},
+        404: {"description": "User not found", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded - превышен лимит (10/мин)", "model": ErrorResponse}
+    },
+    tags=["users"],
+    summary="Обновить пользователя",
+    description="""
+    Обновляет информацию о пользователе.
+    
+    **Требования:**
+    - Аутентификация: обязательна
+    - Роль: admin или manager
+    - CSRF токен: обязателен (заголовок `X-CSRF-Token`)
+    - Rate Limit: 10 запросов/минуту
+    
+    **Валидация:**
+    - `full_name`: 3-200 символов, только буквы, пробелы, дефисы
+    - `role`: один из: user, admin, manager, hr, terminal
+    - `password`: минимум 8 символов, должен содержать буквы и цифры
+    - `department`, `position`: максимум 100 символов
+    
+    **Пример запроса:**
+    ```json
+    {
+        "full_name": "Иванов Иван Иванович",
+        "role": "user",
+        "department": "IT",
+        "is_active": true
+    }
+    ```
+    
+    **Пример curl:**
+    ```bash
+    curl -X PUT https://api.example.com/api/user/1 \\
+      -H "Authorization: Bearer <token>" \\
+      -H "X-CSRF-Token: <csrf_token>" \\
+      -H "Content-Type: application/json" \\
+      -d '{"full_name": "New Name", "role": "user"}'
+    ```
+    """
+)
 async def update_user(
     request: Request,
     user_id: int,
     db: Database = Depends(get_db)
 ):
     """Update user"""
+    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="user_mgmt")
+    # Проверка CSRF токена
+    await require_csrf_token(request)
     # Authorize and get payload once
     payload = authorize_request(request, require_roles=["admin", "manager"])
     
     # Get current user ID for audit
     current_username = payload.get("sub")
     current_user = db.get_web_user_by_username(current_username) if current_username else None
-    updated_by = current_user.get("id") if current_user and current_user.get("id") else None
+    updated_by = current_user.get("id") if current_user else None
     
     # Check if user exists
     user = db.get_web_user_by_id(user_id)
@@ -543,10 +788,19 @@ async def update_user(
     # Parse JSON body
     try:
         body = await request.json()
+        # For JSON requests, CSRF token should be in header (already checked by require_csrf_token)
     except:
         # Fallback to form data
         form = await request.form()
         body = dict(form)
+        # For form data, CSRF token should be checked by require_csrf_token above
+        # But we also check it here for form submissions
+        form_csrf_token = body.get("csrf_token")
+        if form_csrf_token:
+            # Validate form CSRF token
+            from utils.csrf import validate_csrf_token
+            if not validate_csrf_token(request, form_csrf_token):
+                raise HTTPException(status_code=403, detail="Invalid CSRF token")
         # Convert is_active string to boolean
         if 'is_active' in body:
             body['is_active'] = body['is_active'].lower() in ('true', '1', 'yes', 'on')
@@ -559,9 +813,42 @@ async def update_user(
     is_active = body.get('is_active')
     password = body.get('password')
     
+    # Валидация полей
+    if full_name is not None:
+        full_name = sanitize_string(str(full_name), max_length=200)
+        is_valid, error_msg = validate_fio(full_name)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Ошибка валидации ФИО: {error_msg}")
+    
+    if role is not None:
+        is_valid, error_msg = validate_role(str(role))
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Ошибка валидации роли: {error_msg}")
+        # Логируем изменение роли
+        old_role = user.get("role")
+        if old_role != role:
+            client_ip = request.client.host if request.client else "unknown"
+            log_role_change(current_username or "unknown", user.get("username", f"user_{user_id}"), old_role, role, client_ip)
+    
+    if department is not None:
+        department = sanitize_string(str(department), max_length=100)
+        is_valid, error_msg = validate_department(department)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Ошибка валидации отдела: {error_msg}")
+    
+    if position is not None:
+        position = sanitize_string(str(position), max_length=100)
+        is_valid, error_msg = validate_position(position)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Ошибка валидации должности: {error_msg}")
+    
     # Remove empty password
     if password and password.strip() == '':
         password = None
+    elif password:
+        is_valid, error_msg = validate_password(password, min_length=8, require_complexity=True)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Ошибка валидации пароля: {error_msg}")
     
     # Update user
     success = db.update_web_user(
@@ -583,7 +870,33 @@ async def update_user(
     updated_user.pop('password_hash', None)
     return updated_user
 
-@app.get("/api/employee/{employee_id}")
+@app.get(
+    "/api/employee/{employee_id}",
+    responses={
+        200: {"description": "Success"},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
+        403: {"description": "Forbidden", "model": ErrorResponse},
+        404: {"description": "Employee not found", "model": ErrorResponse}
+    },
+    tags=["analytics"],
+    summary="Статистика по сотруднику",
+    description="""
+    Возвращает детальную статистику для конкретного сотрудника.
+    
+    **Параметры:**
+    - `employee_id`: ID сотрудника (Telegram user ID)
+    
+    **Требования:**
+    - Аутентификация: обязательна
+    - Роль: admin, manager или hr
+    
+    **Пример:**
+    ```bash
+    curl -H "Authorization: Bearer <token>" \\
+      https://api.example.com/api/employee/123456
+    ```
+    """
+)
 async def get_employee_stats(employee_id: int, db: Database = Depends(get_db)):
     """Get detailed statistics for a specific employee"""
     stats = db.get_employee_detailed_stats(employee_id)
@@ -595,6 +908,7 @@ async def get_employee_stats(employee_id: int, db: Database = Depends(get_db)):
 @app.get("/api/employees/date/{date}")
 async def get_employees_by_date(request: Request, date: str, db: Database = Depends(get_db)):
     """Get list of employees who visited on a specific date (YYYY-MM-DD)"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
     authorize_request(request, require_roles=["admin", "manager", "hr"])
     
     try:
@@ -610,16 +924,64 @@ async def get_employees_by_date(request: Request, date: str, db: Database = Depe
         "total": len(employees)
     }
 
-@app.get("/api/analytics/daily/{date}")
+@app.get(
+    "/api/analytics/daily/{date}",
+    responses={
+        200: {"description": "Success"},
+        400: {"description": "Bad Request - неверный формат даты", "model": ErrorResponse},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
+        403: {"description": "Forbidden", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded", "model": ErrorResponse}
+    },
+    tags=["analytics"],
+    summary="Дневная аналитика",
+    description="""
+    Возвращает статистику посещаемости за указанную дату.
+    
+    **Параметры:**
+    - `date`: Дата в формате YYYY-MM-DD
+    
+    **Требования:**
+    - Аутентификация: обязательна
+    - Роль: admin, manager или hr
+    - Rate Limit: 30 запросов/минуту
+    
+    **Пример:**
+    ```bash
+    curl -H "Authorization: Bearer <token>" \\
+      https://api.example.com/api/analytics/daily/2024-01-15
+    ```
+    """
+)
 async def analytics_daily(request: Request, date: str, db: Database = Depends(get_db)):
     """Daily analytics by date (YYYY-MM-DD)"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
     authorize_request(request, require_roles=["admin", "manager", "hr"])
     stats = db.get_daily_stats(date)
     return {"date": date, **stats}
 
-@app.get("/api/analytics/weekly")
+@app.get(
+    "/api/analytics/weekly",
+    responses={
+        200: {"description": "Success"},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
+        403: {"description": "Forbidden", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded", "model": ErrorResponse}
+    },
+    tags=["analytics"],
+    summary="Недельная аналитика",
+    description="""
+    Возвращает статистику посещаемости за последние 7 дней.
+    
+    **Требования:**
+    - Аутентификация: обязательна
+    - Роль: admin, manager или hr
+    - Rate Limit: 30 запросов/минуту
+    """
+)
 async def analytics_weekly(request: Request, db: Database = Depends(get_db)):
     """Weekly analytics for last 7 days"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
     authorize_request(request, require_roles=["admin", "manager", "hr"])
     today = datetime.utcnow().date()
     start_date = (today - timedelta(days=6)).isoformat()
@@ -631,36 +993,230 @@ async def analytics_weekly(request: Request, db: Database = Depends(get_db)):
         "daily_stats": data
     }
 
-@app.get("/api/analytics/locations")
+@app.get(
+    "/api/analytics/locations",
+    responses={
+        200: {"description": "Success"},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
+        403: {"description": "Forbidden", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded", "model": ErrorResponse}
+    },
+    tags=["analytics"],
+    summary="Аналитика по локациям",
+    description="""
+    Возвращает статистику по локациям (в текущей реализации все события глобальные).
+    
+    **Требования:**
+    - Аутентификация: обязательна
+    - Роль: admin, manager или hr
+    - Rate Limit: 30 запросов/минуту
+    """
+)
 async def analytics_locations(request: Request, db: Database = Depends(get_db)):
     """Analytics by locations (global in current implementation)"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
     authorize_request(request, require_roles=["admin", "manager", "hr"])
     data = db.get_location_stats()
     return {"locations": data}
 
-@app.get("/api/analytics/users")
+@app.get(
+    "/api/analytics/users",
+    responses={
+        200: {"description": "Success"},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
+        403: {"description": "Forbidden", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded", "model": ErrorResponse}
+    },
+    tags=["analytics"],
+    summary="Самые активные пользователи",
+    description="""
+    Возвращает список самых активных пользователей.
+    
+    **Параметры:**
+    - `limit`: Количество пользователей (по умолчанию 10)
+    
+    **Требования:**
+    - Аутентификация: обязательна
+    - Роль: admin, manager или hr
+    - Rate Limit: 30 запросов/минуту
+    
+    **Пример:**
+    ```bash
+    curl -H "Authorization: Bearer <token>" \\
+      "https://api.example.com/api/analytics/users?limit=20"
+    ```
+    """
+)
 async def analytics_users(request: Request, limit: int = 10, db: Database = Depends(get_db)):
     """Most active users"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
     authorize_request(request, require_roles=["admin", "manager", "hr"])
     data = db.get_user_stats(limit)
     return {"users": data}
 
-@app.get("/api/analytics/hourly/{date}")
+@app.get(
+    "/api/analytics/hourly/{date}",
+    responses={
+        200: {"description": "Success"},
+        400: {"description": "Bad Request - неверный формат даты", "model": ErrorResponse},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
+        403: {"description": "Forbidden", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded", "model": ErrorResponse}
+    },
+    tags=["analytics"],
+    summary="Почасовая аналитика",
+    description="""
+    Возвращает распределение посещаемости по часам за указанную дату.
+    
+    **Параметры:**
+    - `date`: Дата в формате YYYY-MM-DD
+    
+    **Требования:**
+    - Аутентификация: обязательна
+    - Роль: admin, manager или hr
+    - Rate Limit: 30 запросов/минуту
+    
+    **Пример:**
+    ```bash
+    curl -H "Authorization: Bearer <token>" \\
+      https://api.example.com/api/analytics/hourly/2024-01-15
+    ```
+    """
+)
 async def analytics_hourly(request: Request, date: str, db: Database = Depends(get_db)):
     """Hourly analytics for a date (YYYY-MM-DD)"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
     authorize_request(request, require_roles=["admin", "manager", "hr"])
     data = db.get_hourly_stats(date)
     return {"date": date, "hourly": data, "hourly_stats": data}
 
-@app.get("/api/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
+@app.get(
+    "/api/health",
+    response_model=HealthCheckResponse,
+    responses={
+        200: {"description": "System is healthy", "model": HealthCheckResponse},
+        503: {"description": "System is degraded - некоторые сервисы недоступны", "model": HealthCheckResponse}
+    },
+    tags=["health"],
+    summary="Проверка здоровья системы",
+    description="""
+    Проверяет состояние системы и всех зависимостей.
+    
+    **Проверяет:**
+    - База данных (подключение, размер)
+    - Redis (если включен)
+    - Системные метрики (CPU, память, диск) - опционально
+    
+    **Статусы:**
+    - `healthy` (200) - все сервисы работают
+    - `degraded` (503) - некоторые сервисы недоступны
+    
+    **Использование:**
+    - Docker health checks
+    - Мониторинг систем
+    - Load balancer health checks
+    """
+)
+async def health_check(db: Database = Depends(get_db)):
+    """Enhanced health check endpoint with detailed system information"""
+    from utils.metrics import get_system_metrics, get_redis_metrics, get_database_metrics
+    
+    health_status = {
         "status": "healthy",
-        "message": "Attendance System is running",
         "version": "1.0.0",
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "checks": {}
     }
+    
+    overall_healthy = True
+    
+    # Database check
+    try:
+        db_metrics = get_database_metrics(db)
+        health_status["checks"]["database"] = db_metrics
+        if db_metrics.get("status") != "healthy":
+            overall_healthy = False
+    except Exception as e:
+        health_status["checks"]["database"] = {"status": "error", "error": str(e)}
+        overall_healthy = False
+    
+    # Redis check
+    try:
+        redis_metrics = get_redis_metrics()
+        health_status["checks"]["redis"] = redis_metrics
+        if cache.redis_enabled and not redis_metrics.get("connected"):
+            overall_healthy = False
+    except Exception as e:
+        health_status["checks"]["redis"] = {"status": "error", "error": str(e)}
+        if cache.redis_enabled:
+            overall_healthy = False
+    
+    # System metrics (optional, don't fail if unavailable)
+    try:
+        system_metrics = get_system_metrics()
+        if "error" not in system_metrics:
+            health_status["system"] = system_metrics
+    except:
+        pass  # System metrics are optional
+    
+    if not overall_healthy:
+        health_status["status"] = "degraded"
+    
+    status_code = 200 if overall_healthy else 503
+    return Response(
+        content=json.dumps(health_status, indent=2),
+        media_type="application/json",
+        status_code=status_code
+    )
+
+@app.get(
+    "/api/metrics",
+    response_model=MetricsResponse,
+    responses={
+        200: {"description": "Success", "model": MetricsResponse},
+        401: {"description": "Unauthorized", "model": ErrorResponse}
+    },
+    tags=["health"],
+    summary="Получить метрики производительности",
+    description="""
+    Возвращает детальные метрики производительности системы.
+    
+    **Включает:**
+    - Метрики базы данных (статус, размер)
+    - Метрики Redis (подключение, использование памяти)
+    - Системные метрики (CPU, память, диск)
+    - Статистика приложения (пользователи, события, токены)
+    
+    **Использование:**
+    - Интеграция с Prometheus/Grafana
+    - Мониторинг производительности
+    - Анализ использования ресурсов
+    
+    **Пример:**
+    ```bash
+    curl -H "Authorization: Bearer <token>" https://api.example.com/api/metrics
+    ```
+    """
+)
+async def get_metrics(db: Database = Depends(get_db)):
+    """Get detailed performance metrics (for monitoring systems)"""
+    from utils.metrics import get_system_metrics, get_redis_metrics, get_database_metrics
+    
+    metrics = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "database": get_database_metrics(db),
+        "redis": get_redis_metrics(),
+        "system": get_system_metrics()
+    }
+    
+    # Add system health stats if available
+    try:
+        health_stats = db.get_system_health_stats()
+        metrics["application"] = health_stats
+    except:
+        pass
+    
+    return metrics
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots():

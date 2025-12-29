@@ -125,10 +125,30 @@ class Database:
                 )
             ''')
 
-            # Useful indexes
+            # Useful indexes for performance optimization
+            # Events table indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_user_ts ON events (user_id, ts)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_action ON events (action)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_action_ts ON events (action, ts)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_location ON events (location)")
+            
+            # People table indexes
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_people_tg_user_id ON people (tg_user_id)")
+            
+            # Tokens table indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tokens_used_created ON tokens (used, created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tokens_token_used ON tokens (token, used)")
+            
+            # Web users table indexes
             cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_users_username ON web_users (username)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_web_users_role_active ON web_users (role, is_active)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_web_users_department ON web_users (department)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_web_users_is_active ON web_users (is_active)")
+            
+            # User permissions table indexes
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions (user_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_expires ON user_permissions (expires_at)")
 
             # Create default roles
             from config.config import USER_ROLES
@@ -709,14 +729,17 @@ class Database:
             cursor = conn.cursor()
 
             # Count check-ins and check-outs for the day
+            # Optimized: use date range instead of DATE() function for better index usage
+            date_start = f"{date}T00:00:00"
+            date_end = f"{date}T23:59:59"
             cursor.execute('''
                 SELECT
                     COUNT(CASE WHEN action = 'in' THEN 1 END) as checkins,
                     COUNT(CASE WHEN action = 'out' THEN 1 END) as checkouts,
                     COUNT(DISTINCT user_id) as unique_users
                 FROM events
-                WHERE DATE(ts) = ?
-            ''', (date,))
+                WHERE ts >= ? AND ts <= ?
+            ''', (date_start, date_end))
 
             result = cursor.fetchone()
             data = dict(result) if result else {'checkins': 0, 'checkouts': 0, 'unique_users': 0}
@@ -738,6 +761,9 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
+            # Optimized: use date range with DATE() only in GROUP BY for better performance
+            start_datetime = f"{start_date}T00:00:00"
+            end_datetime = f"{end_date}T23:59:59"
             cursor.execute('''
                 SELECT
                     DATE(ts) as date,
@@ -745,10 +771,10 @@ class Database:
                     COUNT(CASE WHEN action = 'out' THEN 1 END) as checkouts,
                     COUNT(DISTINCT user_id) as unique_users
                 FROM events
-                WHERE DATE(ts) BETWEEN ? AND ?
+                WHERE ts >= ? AND ts <= ?
                 GROUP BY DATE(ts)
                 ORDER BY DATE(ts)
-            ''', (start_date, end_date))
+            ''', (start_datetime, end_datetime))
 
             data = [dict(row) for row in cursor.fetchall()]
 
@@ -779,8 +805,11 @@ class Database:
             params = []
 
             if date:
-                query += ' WHERE DATE(ts) = ?'
-                params.append(date)
+                # Optimized: use date range instead of DATE() function
+                date_start = f"{date}T00:00:00"
+                date_end = f"{date}T23:59:59"
+                query += ' WHERE ts >= ? AND ts <= ?'
+                params.extend([date_start, date_end])
 
             cursor.execute(query, params)
             data = [dict(row) for row in cursor.fetchall()]
@@ -835,16 +864,19 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
+            # Optimized: use date range instead of DATE() function
+            date_start = f"{date}T00:00:00"
+            date_end = f"{date}T23:59:59"
             cursor.execute('''
                 SELECT
                     strftime('%H', ts) as hour,
                     COUNT(CASE WHEN action = 'in' THEN 1 END) as checkins,
                     COUNT(CASE WHEN action = 'out' THEN 1 END) as checkouts
                 FROM events
-                WHERE DATE(ts) = ?
+                WHERE ts >= ? AND ts <= ?
                 GROUP BY strftime('%H', ts)
                 ORDER BY hour
-            ''', (date,))
+            ''', (date_start, date_end))
 
             data = [dict(row) for row in cursor.fetchall()]
 
@@ -864,7 +896,9 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Monthly totals
+            # Monthly totals (optimized: use date range in WHERE, DATE() only in SELECT)
+            start_datetime = f"{start_date}T00:00:00"
+            end_datetime = f"{end_date}T00:00:00"
             cursor.execute('''
                 SELECT
                     COUNT(CASE WHEN action = 'in' THEN 1 END) as total_checkins,
@@ -872,12 +906,14 @@ class Database:
                     COUNT(DISTINCT user_id) as unique_users,
                     COUNT(DISTINCT DATE(ts)) as active_days
                 FROM events
-                WHERE DATE(ts) >= ? AND DATE(ts) < ?
-            ''', (start_date, end_date))
+                WHERE ts >= ? AND ts < ?
+            ''', (start_datetime, end_datetime))
 
             monthly_stats = dict(cursor.fetchone())
 
-            # Daily breakdown
+            # Daily breakdown (optimized: use date range in WHERE)
+            start_datetime = f"{start_date}T00:00:00"
+            end_datetime = f"{end_date}T00:00:00"
             cursor.execute('''
                 SELECT
                     DATE(ts) as date,
@@ -885,10 +921,10 @@ class Database:
                     COUNT(CASE WHEN action = 'out' THEN 1 END) as checkouts,
                     COUNT(DISTINCT user_id) as unique_users
                 FROM events
-                WHERE DATE(ts) >= ? AND DATE(ts) < ?
+                WHERE ts >= ? AND ts < ?
                 GROUP BY DATE(ts)
                 ORDER BY DATE(ts)
-            ''', (start_date, end_date))
+            ''', (start_datetime, end_datetime))
 
             daily_stats = [dict(row) for row in cursor.fetchall()]
 
@@ -972,12 +1008,14 @@ class Database:
             # Currently present
             present_users = len(self.get_currently_present())
 
-            # Today's visits
+            # Today's visits (optimized: use date range instead of DATE() function)
             today = datetime.utcnow().date().isoformat()
+            today_start = f"{today}T00:00:00"
+            today_end = f"{today}T23:59:59"
             cursor.execute("""
                 SELECT COUNT(DISTINCT user_id) FROM events
-                WHERE date(ts) = ? AND action = 'in'
-            """, (today,))
+                WHERE ts >= ? AND ts <= ? AND action = 'in'
+            """, (today_start, today_end))
             today_visits = cursor.fetchone()[0]
 
             # Average work time (simplified calculation)
@@ -1016,16 +1054,18 @@ class Database:
             cursor = conn.cursor()
 
             start_date = (datetime.utcnow() - timedelta(days=days)).date()
+            # Optimized: use date range instead of DATE() in WHERE clause
+            start_datetime = f"{start_date.isoformat()}T00:00:00"
 
             cursor.execute("""
                 SELECT
                     date(ts) as visit_date,
                     COUNT(DISTINCT user_id) as visits
                 FROM events
-                WHERE date(ts) >= ? AND action = 'in'
+                WHERE ts >= ? AND action = 'in'
                 GROUP BY date(ts)
                 ORDER BY date(ts)
-            """, (start_date.isoformat(),))
+            """, (start_datetime,))
 
             return [{'date': row[0], 'visits': row[1]} for row in cursor.fetchall()]
 
@@ -1063,10 +1103,10 @@ class Database:
                     p.tg_user_id
                 FROM events e
                 JOIN people p ON e.user_id = p.tg_user_id
-                WHERE DATE(e.ts) = ?
+                WHERE e.ts >= ? AND e.ts <= ?
                 ORDER BY e.user_id, e.ts
                 """,
-                (date,)
+                (f"{date}T00:00:00", f"{date}T23:59:59")
             )
 
             employees: Dict[int, Dict[str, Any]] = {}

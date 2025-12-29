@@ -1,6 +1,11 @@
 import os
 from pathlib import Path
 from typing import List
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Fallback for Python < 3.9
+    from backports.zoneinfo import ZoneInfo
 
 
 def _require_env(name: str, default: str = None) -> str:
@@ -116,3 +121,34 @@ REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}" if
 CACHE_TTL_TOKEN = int(os.getenv("CACHE_TTL_TOKEN", "300"))  # 5 minutes for tokens
 CACHE_TTL_ANALYTICS = int(os.getenv("CACHE_TTL_ANALYTICS", "600"))  # 10 minutes for analytics
 CACHE_TTL_USER = int(os.getenv("CACHE_TTL_USER", "1800"))  # 30 minutes for user data
+
+# Timezone settings
+def get_timezone():
+    """Get timezone from environment or detect system timezone"""
+    tz_name = os.getenv("TIMEZONE")
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            pass
+    
+    # Try to detect system timezone
+    try:
+        import time
+        if hasattr(time, 'timezone'):
+            # Try to get system timezone offset
+            tz_offset = -time.timezone // 3600  # Offset in hours
+            # Common timezones mapping
+            if tz_offset == 3:
+                return ZoneInfo("Europe/Moscow")
+            elif tz_offset == 0:
+                return ZoneInfo("UTC")
+            # Default to UTC if can't determine
+    except Exception:
+        pass
+    
+    # Default to Moscow timezone (GMT+3)
+    return ZoneInfo("Europe/Moscow")
+
+TIMEZONE = get_timezone()
+TIMEZONE_OFFSET_HOURS = int(os.getenv("TIMEZONE_OFFSET_HOURS", "3"))  # Default GMT+3
