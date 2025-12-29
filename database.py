@@ -155,6 +155,7 @@ class Database:
                     ("admin", "Administrator", "admin"),
                     ("manager", "Manager User", "manager"),
                     ("hr", "HR User", "hr"),
+                    ("terminal", "Terminal Service", "terminal"),
                 ]
 
                 creds = []

@@ -43,16 +43,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Приложение: `https://your-domain.com` (production) или `http://localhost:8000` (если пробрасывать порт)
-
-### Локальная разработка
-```bash
-git clone <repository-url>
-cd attendance_system
-cp .env.example .env
-# Отредактируйте .env файл
-python run.py
-```
+Приложение: `https://your-domain.com` (production)
 
 ## 📋 Настройка
 
@@ -113,7 +104,7 @@ python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(64))
 docker compose up -d
 ```
 
-### Development (локальная сборка)
+### Сборка образов
 ```bash
 # Сборка и запуск
 docker compose up -d
@@ -121,50 +112,6 @@ docker compose up -d
 # Или только сборка
 docker compose build
 ```
-
-## 💻 Локальная установка (без Docker)
-
-1. Клонирование
-   ```bash
-   git clone <repository-url>
-   cd attendance_system
-   ```
-2. Виртуальное окружение и зависимости
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Linux/Mac
-   # или .venv\Scripts\activate в Windows
-   pip install -r requirements.txt
-   ```
-3. Переменные окружения
-   ```bash
-   cp .env.example .env
-   # Отредактируйте .env файл
-   ```
-4. Запуск
-   ```bash
-   python run.py  # Запускает backend + bot одновременно
-   ```
-
-   Или по отдельности:
-   ```bash
-   # Backend (терминал 1)
-   python backend/main.py
-
-   # Bot (терминал 2)
-   python bot/bot.py
-   ```
-
-Приложение: `http://localhost:8000`
-
-## Запуск через Docker (при необходимости)
-- Установите переменные окружения (как выше), при использовании `docker-compose` добавьте их в `.env`.
-- Команды:
-  ```bash
-  docker compose up -d
-  # или собрать образ:
-  docker compose build
-  ```
 
 ## Использование
 
@@ -174,7 +121,7 @@ docker compose build
 - Установите их в `.env` файл
 
 ### 2. Доступ к веб-терминалу
-- Откройте браузер: `https://your-domain.com/login` (production) или `http://localhost:8000/login` (локально)
+- Откройте браузер: `https://your-domain.com/login`
 - Введите логин/пароль из `.env` файла
 - Выберите локацию и сканируйте QR-код
 
@@ -189,8 +136,7 @@ docker compose build
 - `/who_here` - кто сейчас в офисе
 
 ### 5. Админ-панель
-- `https://your-domain.com/admin` - просмотр присутствующих (production)
-- `http://localhost:8000/admin` - просмотр присутствующих (локально)
+- `https://your-domain.com/admin` - просмотр присутствующих
 - `/admin/user/{id}` - история пользователя
 
 ## API Endpoints

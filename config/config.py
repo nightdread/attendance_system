@@ -70,6 +70,11 @@ USER_ROLES = {
         "name": "Сотрудник",
         "permissions": ["check_attendance", "view_own_stats"],
         "description": "Базовый доступ для отметки посещаемости"
+    },
+    "terminal": {
+        "name": "Терминал",
+        "permissions": ["view_terminal", "view_qr_code"],
+        "description": "Доступ только к странице терминала с QR-кодом"
     }
 }
 
@@ -85,7 +90,9 @@ PERMISSIONS = {
     "check_attendance": "Отметка посещаемости",
     "view_own_stats": "Просмотр собственной статистики",
     "manage_tokens": "Управление QR токенами",
-    "system_admin": "Администрирование системы"
+    "system_admin": "Администрирование системы",
+    "view_terminal": "Просмотр страницы терминала",
+    "view_qr_code": "Просмотр QR-кода"
 }
 
 # API settings

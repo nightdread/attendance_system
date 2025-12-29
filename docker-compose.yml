@@ -84,7 +84,8 @@ services:
       # Docker socket закомментирован - Docker модуль отключен
       # - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
-      - attendance_app
+      attendance_app:
+        condition: service_healthy
     networks:
       - attendance_network
     env_file:

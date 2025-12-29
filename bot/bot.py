@@ -35,7 +35,8 @@ class AttendanceBot:
         self.main_keyboard = ReplyKeyboardMarkup(
             [
                 [KeyboardButton("📋 Мои последние события"), KeyboardButton("🏢 Кто в офисе")],
-                [KeyboardButton("ℹ️ Помощь"), KeyboardButton("🔄 Обновить меню")]
+                [KeyboardButton("🔑 Восстановить пароль"), KeyboardButton("ℹ️ Помощь")],
+                [KeyboardButton("🔄 Обновить меню")]
             ],
             resize_keyboard=True,
             one_time_keyboard=False
@@ -118,6 +119,9 @@ class AttendanceBot:
             return
         elif text == "🏢 Кто в офисе":
             await self.who_here_command(update, context)
+            return
+        elif text == "🔑 Восстановить пароль":
+            await self.reset_password_command(update, context)
             return
         elif text == "ℹ️ Помощь":
             await self.help_command(update, context)
@@ -373,6 +377,75 @@ class AttendanceBot:
             reply_markup=self.main_keyboard
         )
 
+    async def reset_password_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Reset password for web portal access"""
+        user = update.effective_user
+        person = self.db.get_person_by_tg_id(user.id)
+
+        if not person:
+            await update.message.reply_text(
+                "❌ Вы не зарегистрированы в системе.\n"
+                "📱 Отсканируйте QR-код у терминала для регистрации.",
+                reply_markup=self.main_keyboard
+            )
+            return
+
+        # Find web user by tg_user_id pattern (username like "user{id}")
+        base_username = f"user{user.id}"
+        web_user = self.db.get_web_user_by_username(base_username)
+        
+        # If not found, try with suffix
+        if not web_user:
+            suffix = 1
+            while not web_user and suffix < 10:
+                candidate = f"{base_username}{suffix}"
+                web_user = self.db.get_web_user_by_username(candidate)
+                if web_user:
+                    base_username = candidate
+                    break
+                suffix += 1
+
+        if not web_user:
+            # Create web user if doesn't exist
+            creds = self.db.provision_web_credentials(
+                tg_user_id=user.id,
+                fio=person['fio']
+            )
+            await update.message.reply_text(
+                "🆕 Учетная запись для веб-портала создана!\n\n"
+                f"👤 Логин: {creds['username']}\n"
+                f"🔑 Пароль: {creds['password']}\n\n"
+                "💾 Сохраните пароль в безопасном месте.\n"
+                "🌐 Вход: откройте веб-панель и авторизуйтесь под этими данными.",
+                reply_markup=self.main_keyboard
+            )
+            return
+
+        # Generate new password
+        import secrets
+        from auth.jwt_handler import JWTHandler
+        
+        new_password = secrets.token_urlsafe(10)
+        password_hash = JWTHandler.get_password_hash(new_password)
+
+        # Update password in database
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE web_users SET password_hash = ? WHERE username = ?",
+                (password_hash, base_username)
+            )
+            conn.commit()
+
+        await update.message.reply_text(
+            "✅ Пароль успешно восстановлен!\n\n"
+            f"👤 Логин: {base_username}\n"
+            f"🔑 Новый пароль: {new_password}\n\n"
+            "💾 Сохраните новый пароль в безопасном месте.\n"
+            "🌐 Вход: откройте веб-панель и авторизуйтесь под этими данными.",
+            reply_markup=self.main_keyboard
+        )
+
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show help information"""
         help_text = (
@@ -382,10 +455,12 @@ class AttendanceBot:
             "🔹 **Команды:**\n"
             "   /start - Начать работу с ботом\n"
             "   /my_last - Показать последние события\n"
-            "   /who_here - Показать кто сейчас в офисе\n\n"
+            "   /who_here - Показать кто сейчас в офисе\n"
+            "   /reset_password - Восстановить пароль для веб-портала\n\n"
             "🔹 **Кнопки меню:**\n"
             "   📋 Мои последние события - История ваших отметок\n"
             "   🏢 Кто в офисе - Список присутствующих\n"
+            "   🔑 Восстановить пароль - Получить новый пароль для веб-портала\n"
             "   ℹ️ Помощь - Эта справка\n"
             "   🔄 Обновить меню - Обновить кнопки меню\n\n"
             "💡 Используйте кнопки меню для быстрого доступа к функциям!"
@@ -521,13 +596,23 @@ class AttendanceBot:
 
 def main():
     """Start the bot"""
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    # Configure application with increased timeout settings for network issues
+    application = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .connect_timeout(60.0)
+        .read_timeout(60.0)
+        .write_timeout(60.0)
+        .pool_timeout(60.0)
+        .build()
+    )
     bot = AttendanceBot(application=application)
 
     # Add handlers
     application.add_handler(CommandHandler("start", bot.start_command))
     application.add_handler(CommandHandler("my_last", bot.my_last_command))
     application.add_handler(CommandHandler("who_here", bot.who_here_command))
+    application.add_handler(CommandHandler("reset_password", bot.reset_password_command))
     application.add_handler(CommandHandler("help", bot.help_command))
     application.add_handler(CallbackQueryHandler(bot.handle_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
@@ -552,10 +637,40 @@ def main():
 
     # Start the bot
     logger.info("Starting bot with reminder scheduler...")
+    max_retries = 5
+    retry_count = 0
+    
     try:
-        application.run_polling()
+        while retry_count < max_retries:
+            try:
+                logger.info(f"Attempting to start bot (attempt {retry_count + 1}/{max_retries})...")
+                application.run_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=False,
+                    close_loop=False
+                )
+                break  # Success, exit loop
+            except KeyboardInterrupt:
+                logger.info("Bot stopped by user")
+                break
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"Error starting bot (attempt {retry_count}/{max_retries}): {e}", exc_info=True)
+                if retry_count >= max_retries:
+                    logger.error("Max retries reached. Bot failed to start.")
+                    raise
+                logger.info(f"Retrying in 10 seconds...")
+                import time
+                time.sleep(10)
     finally:
-        scheduler.shutdown()
+        try:
+            if scheduler.running:
+                scheduler.shutdown(wait=False)
+        except RuntimeError:
+            # Event loop already closed, ignore
+            pass
+        except Exception as e:
+            logger.error(f"Error shutting down scheduler: {e}")
 
 if __name__ == '__main__':
     main()

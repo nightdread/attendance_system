@@ -2,10 +2,9 @@
 
 ## 📋 Требования
 
-- Python 3.12+
-- Docker и Docker Compose (для Redis)
-- Система инициализации (systemd/supervisor)
-- Nginx (опционально, для reverse proxy)
+- Docker и Docker Compose
+- Домен с настроенным DNS (для HTTPS)
+- SSL сертификаты (Let's Encrypt)
 
 ## 🔧 Шаги развертывания
 
@@ -16,18 +15,10 @@
 scp -r attendance_system/ user@prod-server:/opt/
 ```
 
-### 2. Установка зависимостей
+### 2. Настройка конфигурации
 
 ```bash
 cd /opt/attendance_system
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3. Настройка конфигурации
-
-```bash
 # Скопируйте и отредактируйте переменные окружения
 cp .env.example .env
 nano .env
@@ -36,109 +27,43 @@ nano .env
 **Важные настройки для продакшн:**
 - `SECRET_KEY` - сгенерируйте новый безопасный ключ
 - `BOT_TOKEN` - токен Telegram бота
+- `BOT_USERNAME` - username бота
 - `WEB_PASSWORD` - сильный пароль для админки
-- `REDIS_ENABLED = True` - включить Redis
-- `API_HOST = "0.0.0.0"` - для доступа извне
-- `API_PORT = 8000` - или другой порт
+- `DOMAIN` - ваш домен (например, your-domain.com)
+- `REDIS_ENABLED=true` - включить Redis
 
-### 4. Запуск Redis
+### 3. Генерация секретных ключей
 
 ```bash
-# Через Docker
-docker run -d --name redis-attendance \
-  --restart unless-stopped \
-  -p 6379:6379 \
-  redis:alpine
-
-# Или установите Redis напрямую
-sudo apt update && sudo apt install redis-server
-sudo systemctl start redis-server
-sudo systemctl enable redis-server
+./generate-keys.sh
 ```
 
-### 5. Инициализация базы данных
+### 4. Настройка SSL сертификатов
+
+Поместите SSL сертификаты в директорию `ssl/`:
+- `ssl/fullchain.pem` - цепочка сертификатов
+- `ssl/privkey.pem` - приватный ключ
+
+Получите сертификаты Let's Encrypt:
+```bash
+# Используйте certbot или другой ACME клиент
+certbot certonly --standalone -d your-domain.com
+# Скопируйте сертификаты в ssl/ директорию
+```
+
+### 5. Запуск через Docker Compose
 
 ```bash
 cd /opt/attendance_system
-source venv/bin/activate
-python3 -c "from database import Database; Database('attendance.db')"
+docker compose up -d
 ```
 
-### 6. Создание systemd сервисов
-
-#### Backend сервис (`/etc/systemd/system/attendance-backend.service`):
-
-```ini
-[Unit]
-Description=Attendance System Backend
-After=network.target redis.service
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/opt/attendance_system/backend
-Environment="PATH=/opt/attendance_system/venv/bin"
-ExecStart=/opt/attendance_system/venv/bin/python3 main.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-#### Bot сервис (`/etc/systemd/system/attendance-bot.service`):
-
-```ini
-[Unit]
-Description=Attendance System Telegram Bot
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/opt/attendance_system/bot
-Environment="PATH=/opt/attendance_system/venv/bin"
-ExecStart=/opt/attendance_system/venv/bin/python3 bot.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### 7. Запуск сервисов
+### 6. Проверка статуса
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable attendance-backend
-sudo systemctl enable attendance-bot
-sudo systemctl start attendance-backend
-sudo systemctl start attendance-bot
-```
-
-### 8. Проверка статуса
-
-```bash
-sudo systemctl status attendance-backend
-sudo systemctl status attendance-bot
-docker ps | grep redis
-```
-
-### 9. Настройка Nginx (опционально)
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+docker compose ps
+docker compose logs -f attendance_app
+docker compose logs -f attendance_bot
 ```
 
 ## 🔐 Безопасность
@@ -152,14 +77,14 @@ server {
 ## 📊 Мониторинг
 
 ```bash
-# Логи backend
-sudo journalctl -u attendance-backend -f
+# Логи всех сервисов
+docker compose logs -f
 
-# Логи bot
-sudo journalctl -u attendance-bot -f
-
-# Логи Redis
-docker logs redis-attendance -f
+# Логи конкретного сервиса
+docker compose logs -f attendance_app
+docker compose logs -f attendance_bot
+docker compose logs -f redis
+docker compose logs -f angie
 ```
 
 ## 🔄 Обновление
@@ -167,10 +92,8 @@ docker logs redis-attendance -f
 ```bash
 cd /opt/attendance_system
 git pull  # если используете git
-source venv/bin/activate
-pip install -r requirements.txt
-sudo systemctl restart attendance-backend
-sudo systemctl restart attendance-bot
+docker compose build
+docker compose up -d
 ```
 
 ## 🗄️ Бэкапы
@@ -185,11 +108,11 @@ cp attendance.db backups/attendance_$(date +%Y%m%d_%H%M%S).db
 
 ## ✅ Чеклист перед запуском
 
-- [ ] Все зависимости установлены
-- [ ] Конфигурация настроена
-- [ ] Redis запущен и доступен
-- [ ] База данных инициализирована
-- [ ] Systemd сервисы созданы и запущены
-- [ ] Firewall настроен
+- [ ] Docker и Docker Compose установлены
+- [ ] Конфигурация настроена (.env файл)
+- [ ] SSL сертификаты размещены в ssl/
+- [ ] Домен настроен и указывает на сервер
+- [ ] Docker Compose сервисы запущены
+- [ ] Firewall настроен (порт 443 открыт)
 - [ ] Бэкапы настроены
 - [ ] Мониторинг настроен

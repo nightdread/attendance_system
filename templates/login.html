@@ -121,6 +121,7 @@
     <div class="login-container">
         <h1>Система учета времени</h1>
         <form method="post">
+            <input type="hidden" name="next_url" value="{{ next_url or '/terminal' }}">
             <div class="form-group">
                 <label for="username">Логин:</label>
                 <input type="text" id="username" name="username" required>

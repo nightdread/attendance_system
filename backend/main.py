@@ -131,9 +131,9 @@ def build_terminal_context(request: Request, db: Database) -> dict:
 @app.get("/api/active_token")
 async def get_active_token(request: Request, db: Database = Depends(get_db)):
     """Get active token for attendance"""
-    # Авторизация: API key или сессия терминала/пользователя
-    # allow_terminal_session=True — для публичного терминала с сессионной кукой
-    authorize_request(request, allow_terminal_session=True)
+    # Авторизация: API key или авторизованная сессия
+    # Терминал теперь требует авторизацию, поэтому убираем allow_terminal_session
+    authorize_request(request, allow_terminal_session=False)
 
     token_data = db.get_active_token()
     token = token_data['token'] if token_data else db.create_token()
@@ -185,22 +185,36 @@ async def get_token_for_device(request: Request, db: Database = Depends(get_db))
 # Web terminal routes
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Database = Depends(get_db)):
-    """Главная: публичный терминал с QR-кодом"""
-    # Помечаем сессию как разрешённую для публичного терминала (для /api/active_token)
-    request.session.setdefault("terminal_allowed", True)
+    """Главная: терминал с QR-кодом (требует авторизацию с ролью terminal)"""
+    # Проверяем авторизацию
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login?next=/", status_code=302)
+    
+    # Проверяем роль - только terminal может видеть QR-код
+    user_role = request.session.get("user_role")
+    if user_role != "terminal":
+        # Если не terminal, редиректим на админку или страницу доступа
+        if user_role in ["admin", "manager", "hr"]:
+            return RedirectResponse(url="/admin", status_code=302)
+        else:
+            return RedirectResponse(url="/me", status_code=302)
+    
     context = build_terminal_context(request, db)
     return templates.TemplateResponse("terminal.html", context)
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    """Страница входа с поддержкой редиректа после логина"""
+    next_url = request.query_params.get("next", "/terminal")
+    return templates.TemplateResponse("login.html", {"request": request, "next_url": next_url})
 
 @app.post("/login")
 async def login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_db),
+    next_url: str = Form("/terminal")
 ):
     # Rate limit by client IP
     client_ip = request.client.host if request.client else "unknown"
@@ -217,7 +231,8 @@ async def login(
                     "login.html",
                     {
                         "request": request,
-                        "error": "Слишком много попыток. Попробуйте позже."
+                        "error": "Слишком много попыток. Попробуйте позже.",
+                        "next_url": next_url
                     }
                 )
 
@@ -230,7 +245,8 @@ async def login(
                     "login.html",
                     {
                         "request": request,
-                        "error": "Слишком много попыток. Попробуйте позже."
+                        "error": "Слишком много попыток. Попробуйте позже.",
+                        "next_url": next_url
                     }
                 )
         else:
@@ -242,7 +258,8 @@ async def login(
                     "login.html",
                     {
                         "request": request,
-                        "error": "Слишком много попыток. Попробуйте позже."
+                        "error": "Слишком много попыток. Попробуйте позже.",
+                        "next_url": next_url
                     }
                 )
     except Exception:
@@ -271,11 +288,10 @@ async def login(
             request.session["authenticated"] = True
             request.session["user_role"] = user.get("role", "user")
 
-            # Админы попадают в админку, остальные - на главную страницу с QR
-            if user.get("role") in ["admin", "manager", "hr"]:
-                return RedirectResponse(url="/admin", status_code=302)
-            else:
-                return RedirectResponse(url="/", status_code=302)
+            # Редирект на запрошенную страницу или по умолчанию
+            # Админы могут попасть в админку, но по умолчанию все идут на терминал
+            redirect_to = next_url if next_url and next_url.startswith("/") else "/terminal"
+            return RedirectResponse(url=redirect_to, status_code=302)
         else:
             # Initialize list if key doesn't exist
             if client_ip not in LOGIN_ATTEMPTS:
@@ -283,7 +299,7 @@ async def login(
             LOGIN_ATTEMPTS[client_ip].append(now)
             return templates.TemplateResponse(
                 "login.html",
-                {"request": request, "error": "Invalid credentials"}
+                {"request": request, "error": "Invalid credentials", "next_url": next_url}
             )
     except Exception as e:
         log_error(e, "Login")
@@ -293,13 +309,25 @@ async def login(
         LOGIN_ATTEMPTS[client_ip].append(now)
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Login failed"}
+            {"request": request, "error": "Login failed", "next_url": next_url}
         )
 
 @app.get("/terminal", response_class=HTMLResponse)
 async def terminal_page(request: Request, db: Database = Depends(get_db)):
-    """Публичный терминал без авторизации"""
-    request.session.setdefault("terminal_allowed", True)
+    """Терминал с QR-кодом (требует авторизацию с ролью terminal)"""
+    # Проверяем авторизацию
+    if not request.session.get("authenticated"):
+        return RedirectResponse(url="/login?next=/terminal", status_code=302)
+    
+    # Проверяем роль - только terminal может видеть QR-код
+    user_role = request.session.get("user_role")
+    if user_role != "terminal":
+        # Если не terminal, редиректим на админку или страницу доступа
+        if user_role in ["admin", "manager", "hr"]:
+            return RedirectResponse(url="/admin", status_code=302)
+        else:
+            return RedirectResponse(url="/me", status_code=302)
+    
     context = build_terminal_context(request, db)
     return templates.TemplateResponse("terminal.html", context)
 
