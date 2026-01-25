@@ -30,9 +30,10 @@ DB_PATH = Path(os.getenv("DB_PATH", BASE_DIR / "attendance.db"))
 BOT_TOKEN = _require_env("BOT_TOKEN")
 BOT_USERNAME = _require_env("BOT_USERNAME")
 
-# Web terminal settings (пароль обязателен, логин по умолчанию admin)
+# Web terminal settings (deprecated - authentication now uses database users)
+# These are kept for backward compatibility but not actively used
 WEB_USERNAME = os.getenv("WEB_USERNAME", "admin")
-WEB_PASSWORD = _require_env("WEB_PASSWORD")
+WEB_PASSWORD = os.getenv("WEB_PASSWORD")  # Optional - not used for authentication
 
 # System is now unified - no location separation
 # All tokens and attendance are global
