@@ -569,6 +569,13 @@ class AttendanceBot:
             return
 
         try:
+            # Import production calendar for checking working days
+            try:
+                from utils.production_calendar import is_working_day
+            except ImportError:
+                # Fallback if production calendar is not available
+                is_working_day = lambda date: True  # Send reminders anyway
+            
             # Get open sessions older than 8 hours
             open_sessions = self.db.get_open_sessions_older_than(8.0)
             
@@ -585,6 +592,12 @@ class AttendanceBot:
                     checkin_time = datetime.fromisoformat(session['ts'].replace('Z', '+00:00'))
                     local_time = checkin_time.astimezone(TIMEZONE)
                     time_str = local_time.strftime('%H:%M')
+                    
+                    # Check if today is a working day (skip reminders on weekends/holidays)
+                    today = local_time.date()
+                    if not is_working_day(today):
+                        logger.debug(f"Skipping reminder for user {user_id} - today ({today}) is not a working day")
+                        continue
 
                     # Create reminder message with button
                     reminder_text = (

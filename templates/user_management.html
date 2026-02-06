@@ -407,7 +407,13 @@
                                 {{ 'Активен' if user.is_active else 'Заблокирован' }}
                             </span>
                         </td>
-                        <td>{{ user.last_login or 'Никогда' }}</td>
+                        <td>
+                            {% if user.last_login %}
+                                {{ user.last_login[:19].replace('T', ' ') }}
+                            {% else %}
+                                Никогда
+                            {% endif %}
+                        </td>
                         <td>
                             <a href="#" class="action-btn" onclick="editUser({{ user.id }})">✏️</a>
                             <a href="#" class="action-btn delete-btn" onclick="alert('Функционал удаления будет реализован позже')">🗑️</a>

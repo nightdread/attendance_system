@@ -308,12 +308,30 @@
             border-color: var(--accent);
             background: rgba(14,165,233,0.1);
         }
+        .calendar-day.holiday {
+            background: rgba(220, 53, 69, 0.2);
+            border-color: rgba(220, 53, 69, 0.5);
+        }
+        .calendar-day.holiday:hover {
+            background: rgba(220, 53, 69, 0.3);
+            border-color: rgba(220, 53, 69, 0.7);
+        }
+        .calendar-day.holiday .calendar-day-number {
+            color: #ff6b6b;
+        }
+        .calendar-day.today.holiday {
+            border-color: #ff6b6b;
+            background: rgba(220, 53, 69, 0.15);
+        }
         .calendar-day.has-visits {
             background: rgba(34,197,94,0.2);
             border-color: var(--success);
         }
         .calendar-day.has-visits.many-visits {
             background: rgba(34,197,94,0.4);
+        }
+        .calendar-day.holiday.has-visits {
+            background: rgba(220, 53, 69, 0.3);
         }
         .calendar-day-number {
             font-size: 0.9rem;
@@ -1191,7 +1209,8 @@
                         data.days.forEach(day => {
                             calendarData[day.date] = {
                                 visits: day.visits || 0,
-                                hours: day.hours || 0
+                                hours: day.hours || 0,
+                                is_holiday: day.is_holiday || false
                             };
                         });
                     }
@@ -1271,13 +1290,15 @@
                 const date = new Date(year, month, day);
                 // Формируем dateKey в локальном времени, чтобы избежать смещения из-за UTC
                 const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dayData = calendarData[dateKey] || {visits: 0, hours: 0};
+                const dayData = calendarData[dateKey] || {visits: 0, hours: 0, is_holiday: false};
                 const visits = dayData.visits || 0;
                 const hours = dayData.hours || 0;
+                const isHoliday = dayData.is_holiday || false;
                 const isToday = date.getTime() === today.getTime();
                 
                 let dayClasses = 'calendar-day';
                 if (isToday) dayClasses += ' today';
+                if (isHoliday) dayClasses += ' holiday';
                 if (visits > 0 || hours > 0) {
                     dayClasses += ' has-visits';
                     if (visits > 5) dayClasses += ' many-visits';

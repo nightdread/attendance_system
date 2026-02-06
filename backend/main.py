@@ -10,7 +10,6 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
-from collections import defaultdict
 from pathlib import Path
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -456,8 +455,9 @@ async def login(
 
     # Попытка логина через API
     try:
-        user = db.get_web_user_by_username(username)
-        if user and JWTHandler.verify_password(password, user["password_hash"]):
+        # Используем authenticate_web_user, который обновляет last_login
+        user = db.authenticate_web_user(username, password)
+        if user:
             # Сброс счетчика попыток при успехе
             try:
                 if cache.redis_client:
@@ -1388,6 +1388,24 @@ async def analytics_calendar(
                     hours_data[date_str] = 0
                 hours_data[date_str] += hours
         
+        # Проверяем выходные и праздничные дни через производственный календарь
+        is_holiday_data = {}
+        try:
+            from utils.production_calendar import is_working_day
+            current_check = start_date
+            while current_check <= end_date:
+                date_str = current_check.isoformat()
+                is_holiday_data[date_str] = not is_working_day(current_check)
+                current_check += timedelta(days=1)
+        except Exception as e:
+            # Если производственный календарь недоступен, используем стандартную логику (суббота/воскресенье)
+            current_check = start_date
+            while current_check <= end_date:
+                date_str = current_check.isoformat()
+                weekday = current_check.weekday()  # 0 = Monday, 6 = Sunday
+                is_holiday_data[date_str] = (weekday >= 5)  # Saturday (5) or Sunday (6)
+                current_check += timedelta(days=1)
+        
         # Объединяем данные
         result = []
         current_date = start_date
@@ -1396,7 +1414,8 @@ async def analytics_calendar(
             result.append({
                 'date': date_str,
                 'visits': visits_data.get(date_str, 0),
-                'hours': round(hours_data.get(date_str, 0), 1)
+                'hours': round(hours_data.get(date_str, 0), 1),
+                'is_holiday': is_holiday_data.get(date_str, False)
             })
             current_date += timedelta(days=1)
         

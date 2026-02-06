@@ -156,3 +156,7 @@ TIMEZONE_OFFSET_HOURS = int(os.getenv("TIMEZONE_OFFSET_HOURS", "3"))  # Default 
 # IP Whitelist for admin access (optional, comma-separated)
 ADMIN_IP_WHITELIST = os.getenv("ADMIN_IP_WHITELIST", "").split(",") if os.getenv("ADMIN_IP_WHITELIST") else []
 ADMIN_IP_WHITELIST = [ip.strip() for ip in ADMIN_IP_WHITELIST if ip.strip()]
+
+# Production Calendar settings (optional)
+PRODUCTION_CALENDAR_API_URL = os.getenv("PRODUCTION_CALENDAR_API_URL", "https://isdayoff.ru")
+PRODUCTION_CALENDAR_FILE = os.getenv("PRODUCTION_CALENDAR_FILE")  # Optional path to local calendar JSON file
