@@ -64,8 +64,14 @@
         }
         .stat-value { font-size: 1.6rem; font-weight: 700; }
         .stat-label { color: var(--muted); }
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 1rem 0;
+        }
         table {
             width: 100%;
+            min-width: 600px;
             border-collapse: collapse;
             margin-top: 1rem;
         }
@@ -191,6 +197,7 @@
         <div class="card" style="margin-bottom: 1rem;">
             <h3 style="margin-top:0;">Последние сессии</h3>
             {% if stats.recent_sessions %}
+            <div class="table-wrapper">
             <table>
                 <thead>
                     <tr>
@@ -211,6 +218,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <div class="no-data">Нет данных по сессиям</div>
             {% endif %}
@@ -219,6 +227,7 @@
         <div class="card">
             <h3 style="margin-top:0;">Месячная активность (последние месяцы)</h3>
             {% if stats.monthly_stats %}
+            <div class="table-wrapper">
             <table>
                 <thead>
                     <tr>
@@ -237,6 +246,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <div class="no-data">Нет данных</div>
             {% endif %}

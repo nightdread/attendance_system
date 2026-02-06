@@ -71,8 +71,14 @@
             margin-top: 0;
             color: var(--text);
         }
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 1rem 0;
+        }
         table {
             width: 100%;
+            min-width: 600px;
             border-collapse: collapse;
             margin-top: 1rem;
         }
@@ -178,6 +184,7 @@
         <div class="events-section">
             <h3>История событий</h3>
             {% if events %}
+            <div class="table-wrapper">
             <table>
                 <thead>
                     <tr>
@@ -198,6 +205,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <div class="no-data">
                 У пользователя пока нет событий

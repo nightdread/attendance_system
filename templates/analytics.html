@@ -145,8 +145,14 @@
             gap: 2rem;
             margin-bottom: 2rem;
         }
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 1rem 0;
+        }
         table {
             width: 100%;
+            min-width: 600px;
             border-collapse: collapse;
             margin-top: 1rem;
         }
@@ -441,6 +447,38 @@
             color: var(--muted);
             padding: 2rem;
         }
+        /* Responsive table styles */
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            }
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            .calendar-container {
+                grid-template-columns: 1fr;
+            }
+            .chart-container {
+                height: 300px;
+            }
+            table {
+                font-size: 0.85rem;
+            }
+            table th, table td {
+                padding: 0.5rem 0.25rem;
+            }
+        }
+        @media (max-width: 480px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            .stat-value {
+                font-size: 2rem;
+            }
+            table {
+                font-size: 0.75rem;
+            }
+        }
         /* Mobile styles */
         @media (max-width: 768px) {
             body {
@@ -563,6 +601,14 @@
             .chart-container {
                 height: 250px;
             }
+            .export-btn:hover {
+                opacity: 0.9;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            }
+            .export-btn:active {
+                transform: translateY(0);
+            }
             th, td {
                 padding: 0.4rem;
                 font-size: 0.8rem;
@@ -613,7 +659,7 @@
                     <div class="stat-label">Посещений сегодня</div>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-value">{{ analytics_summary.avg_work_time }}ч</span>
+                    <span class="stat-value">{{ analytics_summary.avg_work_time|format_hours if analytics_summary.avg_work_time else "-" }}</span>
                     <div class="stat-label">Среднее время работы (30 дней)</div>
                 </div>
                 </div>
@@ -672,6 +718,7 @@
             </h2>
             <div id="top-workers-section" class="section-content collapsed">
             {% if top_workers %}
+            <div class="table-wrapper">
             <table>
                 <thead>
                     <tr>
@@ -693,12 +740,13 @@
                         </td>
                         <td>{{ worker.name }}</td>
                         <td>{{ worker.work_days }}</td>
-                        <td class="metric-highlight">{{ worker.total_hours }}</td>
-                        <td>{{ "%.1f"|format(worker.total_hours / worker.work_days if worker.work_days > 0 else 0) }}</td>
+                        <td class="metric-highlight">{{ worker.total_hours|format_hours }}</td>
+                        <td>{{ ((worker.total_hours / worker.work_days) if worker.work_days > 0 else 0)|format_hours }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <div class="no-data">
                 <p>📝 Данные о посещаемости еще не собраны.</p>
@@ -791,6 +839,49 @@
                 <div id="employee-info" class="stats-grid" style="margin-bottom: 2rem;"></div>
                 <div id="employee-details"></div>
             </div>
+            </div>
+        </div>
+
+        <!-- Экспорт отчета -->
+        <div class="section">
+            <h2 onclick="toggleSection('export-section')">
+                <span>📥 Экспорт отчета в Excel</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('export-section')">▶</button>
+            </h2>
+            <div id="export-section" class="section-content collapsed">
+                <div style="padding: 1rem;">
+                    <h3>Выберите период для экспорта:</h3>
+                    <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+                        <button onclick="exportReport('last_week')" class="export-btn" style="padding: 0.75rem 1.5rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500;">
+                            📅 Последняя неделя
+                        </button>
+                        <button onclick="exportReport('last_month')" class="export-btn" style="padding: 0.75rem 1.5rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500;">
+                            📅 Последний месяц
+                        </button>
+                        <button onclick="exportReport('current_month')" class="export-btn" style="padding: 0.75rem 1.5rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500;">
+                            📅 Текущий месяц
+                        </button>
+                    </div>
+                    <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #ddd;">
+                        <h3>Или выберите диапазон дат:</h3>
+                        <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-top: 1rem;">
+                            <div>
+                                <label for="export-start-date" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">С:</label>
+                                <input type="date" id="export-start-date" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; font-size: 1rem;">
+                            </div>
+                            <div>
+                                <label for="export-end-date" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">По:</label>
+                                <input type="date" id="export-end-date" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; font-size: 1rem;">
+                            </div>
+                            <div style="align-self: flex-end;">
+                                <button onclick="exportReportByDate()" class="export-btn" style="padding: 0.75rem 1.5rem; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500;">
+                                    📊 Экспортировать
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="export-status" style="margin-top: 1rem; padding: 0.75rem; border-radius: 4px; display: none;"></div>
+                </div>
             </div>
         </div>
 
@@ -952,6 +1043,14 @@
             }
         });
 
+        // Функция форматирования часов в ЧЧ:ММ
+        function formatHoursToHHMM(hours) {
+            if (!hours || hours <= 0) return "-";
+            const wholeHours = Math.floor(hours);
+            const minutes = Math.round((hours - wholeHours) * 60);
+            return `${wholeHours}:${minutes.toString().padStart(2, '0')}`;
+        }
+
         // Employee statistics functionality
         async function loadEmployeeStats() {
             const employeeId = document.getElementById('employee-select').value;
@@ -1007,10 +1106,11 @@
                         <table style="width: 100%; margin-top: 1rem;">
                             <tr><td>Всего приходов:</td><td style="text-align: right; font-weight: bold;">${data.total_checkins}</td></tr>
                             <tr><td>Всего уходов:</td><td style="text-align: right; font-weight: bold;">${data.total_checkouts}</td></tr>
-                            <tr><td>Среднее время работы:</td><td style="text-align: right; font-weight: bold;">${data.avg_work_time} ч</td></tr>
+                            <tr><td>Среднее время работы:</td><td style="text-align: right; font-weight: bold;">${formatHoursToHHMM(data.avg_work_time)}</td></tr>
                             <tr><td>Первое посещение:</td><td style="text-align: right;">${data.first_visit || 'Нет данных'}</td></tr>
                             <tr><td>Последнее посещение:</td><td style="text-align: right;">${data.last_visit || 'Нет данных'}</td></tr>
                         </table>
+                        </div>
                     </div>
 
                     <div>
@@ -1035,6 +1135,7 @@
                                 </tbody>
                             </table>
                         </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1050,7 +1151,7 @@
 
             if (data.recent_sessions && data.recent_sessions.length > 0) {
                 data.recent_sessions.forEach(session => {
-                    detailsHtml += `<tr><td>${session.work_date}</td><td>${session.checkin_time}</td><td>${session.checkout_time}</td><td>${session.work_hours} ч</td></tr>`;
+                    detailsHtml += `<tr><td>${session.work_date}</td><td>${session.checkin_time}</td><td>${session.checkout_time}</td><td>${formatHoursToHHMM(session.work_hours)}</td></tr>`;
                 });
             } else {
                 detailsHtml += `<tr><td colspan="4" style="text-align: center;">Нет данных о сессиях работы</td></tr>`;
@@ -1059,6 +1160,7 @@
             detailsHtml += `
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1275,6 +1377,116 @@
 
         // Инициализация календаря при загрузке страницы
         loadCalendarData();
+
+        // Функции экспорта отчета
+        async function exportReport(period) {
+            const statusDiv = document.getElementById('export-status');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = '#fff3cd';
+            statusDiv.style.color = '#856404';
+            statusDiv.textContent = '⏳ Генерация отчета...';
+            
+            try {
+                const response = await fetch(`/api/export/pivot?period=${period}&format=xlsx`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Ошибка: ${response.status} ${response.statusText}`);
+                }
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `отчет_${period}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                statusDiv.style.background = '#d4edda';
+                statusDiv.style.color = '#155724';
+                statusDiv.textContent = '✅ Отчет успешно скачан!';
+                
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                statusDiv.style.background = '#f8d7da';
+                statusDiv.style.color = '#721c24';
+                statusDiv.textContent = `❌ Ошибка: ${error.message}`;
+            }
+        }
+
+        async function exportReportByDate() {
+            const startDate = document.getElementById('export-start-date').value;
+            const endDate = document.getElementById('export-end-date').value;
+            
+            if (!startDate || !endDate) {
+                alert('Пожалуйста, выберите обе даты');
+                return;
+            }
+            
+            if (new Date(startDate) > new Date(endDate)) {
+                alert('Дата начала не может быть позже даты окончания');
+                return;
+            }
+            
+            const statusDiv = document.getElementById('export-status');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = '#fff3cd';
+            statusDiv.style.color = '#856404';
+            statusDiv.textContent = '⏳ Генерация отчета...';
+            
+            try {
+                const response = await fetch(`/api/export/pivot?start_date=${startDate}&end_date=${endDate}&format=xlsx`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Ошибка: ${response.status} ${response.statusText}`);
+                }
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `отчет_${startDate}_${endDate}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                statusDiv.style.background = '#d4edda';
+                statusDiv.style.color = '#155724';
+                statusDiv.textContent = '✅ Отчет успешно скачан!';
+                
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                statusDiv.style.background = '#f8d7da';
+                statusDiv.style.color = '#721c24';
+                statusDiv.textContent = `❌ Ошибка: ${error.message}`;
+            }
+        }
+    </script>
+    <script>
+        // Register service worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/service-worker.js')
+                    .then((registration) => {
+                        console.log('ServiceWorker registered:', registration);
+                    })
+                    .catch((error) => {
+                        console.log('ServiceWorker registration failed:', error);
+                    });
+            });
+        }
     </script>
 </body>
 </html>

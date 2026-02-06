@@ -81,13 +81,14 @@ def get_redis_metrics() -> Dict[str, Any]:
     Returns:
         Dictionary with Redis metrics
     """
+    from config.config import REDIS_ENABLED
     metrics = {
-        "enabled": cache.redis_enabled,
+        "enabled": REDIS_ENABLED,
         "connected": False,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
     
-    if not cache.redis_enabled:
+    if not REDIS_ENABLED:
         return metrics
     
     try:

@@ -658,6 +658,7 @@ def main():
 
     # Setup scheduler for reminders
     scheduler = AsyncIOScheduler()
+    
     # Check every 30 minutes for open sessions older than 8 hours
     scheduler.add_job(
         bot.check_and_send_reminders,
@@ -672,6 +673,89 @@ def main():
         id='cleanup_reminders',
         replace_existing=True
     )
+    
+    # Еженедельные сводки (каждый понедельник в 9:00)
+    async def send_weekly_summaries():
+        """Отправка еженедельных сводок пользователям"""
+        try:
+            today = datetime.now(TIMEZONE).date()
+            if today.weekday() == 0:  # Понедельник
+                last_week_start = today - timedelta(days=7)
+                last_week_end = today - timedelta(days=1)
+                
+                # Получаем всех пользователей
+                with bot.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT DISTINCT tg_user_id FROM people")
+                    user_ids = [row[0] for row in cursor.fetchall()]
+                
+                for user_id in user_ids:
+                    try:
+                        # Получаем статистику за неделю
+                        stats = bot.db.get_employee_detailed_stats(user_id)
+                        if stats and stats.get('total_work_days', 0) > 0:
+                            summary = (
+                                f"📊 Еженедельная сводка ({last_week_start.strftime('%d.%m')} - {last_week_end.strftime('%d.%m')})\n\n"
+                                f"Рабочих дней: {stats.get('total_work_days', 0)}\n"
+                                f"Приходов: {stats.get('total_checkins', 0)}\n"
+                                f"Уходов: {stats.get('total_checkouts', 0)}\n"
+                                f"Среднее время работы: {stats.get('avg_work_time', 0):.1f} ч"
+                            )
+                            await bot.application.bot.send_message(chat_id=user_id, text=summary)
+                    except Exception as e:
+                        logger.error(f"Failed to send weekly summary to {user_id}: {e}")
+        except Exception as e:
+            logger.error(f"Error in send_weekly_summaries: {e}")
+    
+    # Напоминание в конце месяца
+    async def send_month_end_reminder():
+        """Напоминание в конце месяца"""
+        try:
+            today = datetime.now(TIMEZONE).date()
+            # Проверяем последний день месяца
+            if today.day >= 28:  # Последние дни месяца
+                next_month = today.replace(day=1) + timedelta(days=32)
+                last_day = (next_month.replace(day=1) - timedelta(days=1)).day
+                
+                if today.day == last_day - 1:  # Предпоследний день месяца
+                    reminder = "📅 Напоминание: завтра последний день месяца. Проверьте свою статистику!"
+                    # Отправляем всем активным пользователям
+                    with bot.db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT DISTINCT p.tg_user_id 
+                            FROM people p
+                            WHERE EXISTS (
+                                SELECT 1 FROM events e 
+                                WHERE e.user_id = p.tg_user_id 
+                                AND e.ts >= date('now', '-30 days')
+                            )
+                        """)
+                        user_ids = [row[0] for row in cursor.fetchall()]
+                    
+                    for user_id in user_ids:
+                        try:
+                            await bot.application.bot.send_message(chat_id=user_id, text=reminder)
+                        except Exception as e:
+                            logger.error(f"Failed to send month end reminder to {user_id}: {e}")
+        except Exception as e:
+            logger.error(f"Error in send_month_end_reminder: {e}")
+    
+    from apscheduler.triggers.cron import CronTrigger
+    scheduler.add_job(
+        send_weekly_summaries,
+        CronTrigger(day_of_week='mon', hour=9, minute=0, timezone=TIMEZONE),
+        id='weekly_summaries',
+        replace_existing=True
+    )
+    
+    scheduler.add_job(
+        send_month_end_reminder,
+        CronTrigger(hour=18, minute=0, timezone=TIMEZONE),
+        id='month_end_reminder',
+        replace_existing=True
+    )
+    
     scheduler.start()
 
     # Start the bot

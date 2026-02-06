@@ -88,15 +88,16 @@ def validate_csrf_token(request: Request, token: Optional[str] = None) -> bool:
     return secrets.compare_digest(session_token, token)
 
 
-async def require_csrf_token(request: Request) -> None:
+async def require_csrf_token(request: Request, form_token: Optional[str] = None) -> None:
     """
     Require valid CSRF token, raise exception if invalid
     
     For JSON requests, checks X-CSRF-Token header.
-    For form requests, checks csrf_token form field.
+    For form requests, checks csrf_token form field (can be passed as form_token).
     
     Args:
         request: FastAPI request object
+        form_token: Optional CSRF token from form data (for form submissions)
     
     Raises:
         HTTPException: If CSRF token is missing or invalid
@@ -104,12 +105,17 @@ async def require_csrf_token(request: Request) -> None:
     # Try header first (for JSON/AJAX requests)
     token = request.headers.get("X-CSRF-Token")
     
-    # If no header token, try to get from form (for form submissions)
+    # If no header token, try form_token parameter (passed from endpoint)
+    if not token and form_token:
+        token = form_token
+    
+    # If still no token, try to read from form data (for form submissions)
     if not token:
         try:
-            # Try to read form data (this might not work for all request types)
-            # The endpoint handler should check form data separately
-            pass
+            # Try to read form data if it hasn't been read yet
+            if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
+                form = await request.form()
+                token = form.get("csrf_token")
         except:
             pass
     

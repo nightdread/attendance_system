@@ -124,6 +124,79 @@ class Database:
                     UNIQUE(user_id, permission)
                 )
             ''')
+            
+            # Audit log table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    action_type TEXT NOT NULL,
+                    user_id     INTEGER,
+                    username    TEXT,
+                    target_type TEXT,
+                    target_id   INTEGER,
+                    details     TEXT,
+                    ip_address  TEXT,
+                    user_agent  TEXT,
+                    created_at  TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES web_users (id)
+                )
+            ''')
+            
+            # Vacations table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS vacations (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL,
+                    start_date  TEXT NOT NULL,
+                    end_date    TEXT NOT NULL,
+                    days_count  INTEGER NOT NULL,
+                    vacation_type TEXT DEFAULT 'annual',
+                    status      TEXT DEFAULT 'pending',
+                    created_by  INTEGER,
+                    approved_by INTEGER,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT,
+                    notes       TEXT,
+                    FOREIGN KEY (user_id) REFERENCES people (id),
+                    FOREIGN KEY (created_by) REFERENCES web_users (id),
+                    FOREIGN KEY (approved_by) REFERENCES web_users (id)
+                )
+            ''')
+            
+            # Sick leaves table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sick_leaves (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL,
+                    start_date  TEXT NOT NULL,
+                    end_date    TEXT NOT NULL,
+                    days_count  INTEGER NOT NULL,
+                    status      TEXT DEFAULT 'pending',
+                    created_by  INTEGER,
+                    approved_by INTEGER,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT,
+                    notes       TEXT,
+                    FOREIGN KEY (user_id) REFERENCES people (id),
+                    FOREIGN KEY (created_by) REFERENCES web_users (id),
+                    FOREIGN KEY (approved_by) REFERENCES web_users (id)
+                )
+            ''')
+            
+            # Report templates table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS report_templates (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name        TEXT NOT NULL,
+                    description TEXT,
+                    template_type TEXT NOT NULL,
+                    config      TEXT NOT NULL,
+                    created_by  INTEGER,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT,
+                    FOREIGN KEY (created_by) REFERENCES web_users (id)
+                )
+            ''')
 
             # Useful indexes for performance optimization
             # Events table indexes
@@ -149,6 +222,19 @@ class Database:
             # User permissions table indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions (user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_expires ON user_permissions (expires_at)")
+            
+            # Audit log indexes
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log (user_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log (created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_action_type ON audit_log (action_type)")
+            
+            # Vacations indexes
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vacations_user_id ON vacations (user_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vacations_dates ON vacations (start_date, end_date)")
+            
+            # Sick leaves indexes
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sick_leaves_user_id ON sick_leaves (user_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sick_leaves_dates ON sick_leaves (start_date, end_date)")
 
             # Create default roles
             from config.config import USER_ROLES
@@ -1226,17 +1312,32 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Get stats for web users by department
+            # Get stats for web users by role (group admin users separately)
             cursor.execute("""
                 SELECT
-                    COALESCE(wu.department, 'Администраторы') as department,
+                    CASE 
+                        WHEN wu.role = 'admin' THEN 'Администраторы'
+                        WHEN wu.role = 'manager' THEN 'Менеджеры'
+                        WHEN wu.role = 'hr' THEN 'HR'
+                        WHEN wu.role = 'user' THEN 'Пользователи'
+                        WHEN wu.role = 'terminal' THEN 'Терминал'
+                        ELSE COALESCE(wu.department, 'Прочие')
+                    END as department,
                     COUNT(DISTINCT wu.id) as user_count,
                     COUNT(DISTINCT CASE WHEN wu.id IN (
                         SELECT DISTINCT CAST(user_id AS TEXT) FROM events WHERE action = 'in'
                     ) THEN wu.id END) as active_users,
                     'web' as user_type
                 FROM web_users wu
-                GROUP BY wu.department
+                GROUP BY 
+                    CASE 
+                        WHEN wu.role = 'admin' THEN 'Администраторы'
+                        WHEN wu.role = 'manager' THEN 'Менеджеры'
+                        WHEN wu.role = 'hr' THEN 'HR'
+                        WHEN wu.role = 'user' THEN 'Пользователи'
+                        WHEN wu.role = 'terminal' THEN 'Терминал'
+                        ELSE COALESCE(wu.department, 'Прочие')
+                    END
             """)
 
             web_stats = cursor.fetchall()
@@ -1398,3 +1499,513 @@ class Database:
             cache.set(cache_key, result, CACHE_TTL_USER)
 
             return result
+
+    def get_pivot_report(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        """
+        Получить отчет в формате сводной таблицы (pivot table).
+        
+        Формат: фамилии слева, дни сверху, часы на пересечении.
+        
+        Args:
+            start_date: Начальная дата в формате YYYY-MM-DD
+            end_date: Конечная дата в формате YYYY-MM-DD
+        
+        Returns:
+            Dict с ключами:
+            - employees: список сотрудников с id, tg_user_id, fio
+            - days: список дат в формате YYYY-MM-DD
+            - data: словарь {employee_id: {date: hours, ...}, ...}
+            - totals: словарь {employee_id: total_hours, ...}
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Получаем список всех сотрудников, у которых есть события в периоде
+            cursor.execute("""
+                SELECT DISTINCT p.id, p.tg_user_id, p.fio
+                FROM people p
+                WHERE EXISTS (
+                    SELECT 1 FROM events e
+                    WHERE e.user_id = p.tg_user_id
+                    AND e.ts >= ? AND e.ts <= ?
+                )
+                ORDER BY p.fio
+            """, (f"{start_date}T00:00:00", f"{end_date}T23:59:59"))
+            
+            employees = [dict(row) for row in cursor.fetchall()]
+            
+            # Генерируем список всех дней в периоде
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+            days = []
+            current = start
+            while current <= end:
+                days.append(current.strftime("%Y-%m-%d"))
+                current += timedelta(days=1)
+            
+            # Инициализируем структуру данных
+            data = {}
+            totals = {}
+            
+            # Для каждого сотрудника вычисляем часы работы по дням
+            for employee in employees:
+                employee_id = employee['id']
+                tg_user_id = employee['tg_user_id']
+                data[employee_id] = {}
+                totals[employee_id] = 0.0
+                
+                for day in days:
+                    hours = self.get_work_time(tg_user_id, day)
+                    data[employee_id][day] = hours
+                    totals[employee_id] += hours
+            
+            return {
+                "employees": employees,
+                "days": days,
+                "data": data,
+                "totals": totals
+            }
+
+    def compare_periods(self, period1_start: str, period1_end: str, period2_start: str, period2_end: str) -> Dict[str, Any]:
+        """
+        Сравнить два периода по различным метрикам.
+        
+        Args:
+            period1_start, period1_end: Первый период (YYYY-MM-DD)
+            period2_start, period2_end: Второй период (YYYY-MM-DD)
+        
+        Returns:
+            Dict с сравнением метрик
+        """
+        def get_period_stats(start: str, end: str):
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT 
+                        COUNT(DISTINCT user_id) as unique_users,
+                        COUNT(CASE WHEN action = 'in' THEN 1 END) as checkins,
+                        COUNT(CASE WHEN action = 'out' THEN 1 END) as checkouts,
+                        COUNT(DISTINCT date(ts)) as work_days
+                    FROM events
+                    WHERE ts >= ? AND ts <= ?
+                """, (f"{start}T00:00:00", f"{end}T23:59:59"))
+                
+                row = cursor.fetchone()
+                return {
+                    "unique_users": row[0],
+                    "checkins": row[1],
+                    "checkouts": row[2],
+                    "work_days": row[3]
+                }
+        
+        stats1 = get_period_stats(period1_start, period1_end)
+        stats2 = get_period_stats(period2_start, period2_end)
+        
+        return {
+            "period1": {
+                "start": period1_start,
+                "end": period1_end,
+                "stats": stats1
+            },
+            "period2": {
+                "start": period2_start,
+                "end": period2_end,
+                "stats": stats2
+            },
+            "comparison": {
+                "unique_users_diff": stats2["unique_users"] - stats1["unique_users"],
+                "checkins_diff": stats2["checkins"] - stats1["checkins"],
+                "checkouts_diff": stats2["checkouts"] - stats1["checkouts"],
+                "work_days_diff": stats2["work_days"] - stats1["work_days"]
+            }
+        }
+
+    def get_late_arrivals_stats(self, start_date: str, end_date: str, late_threshold_hours: int = 9) -> List[Dict[str, Any]]:
+        """
+        Получить статистику опозданий (приход после указанного часа).
+        
+        Args:
+            start_date, end_date: Период (YYYY-MM-DD)
+            late_threshold_hours: Час, после которого считается опозданием (по умолчанию 9)
+        
+        Returns:
+            Список записей с информацией об опозданиях
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    p.fio,
+                    date(e.ts) as work_date,
+                    strftime('%H:%M', datetime(e.ts, '+3 hours')) as arrival_time,
+                    COUNT(*) as late_count
+                FROM events e
+                JOIN people p ON e.user_id = p.tg_user_id
+                WHERE e.action = 'in'
+                AND e.ts >= ? AND e.ts <= ?
+                AND CAST(strftime('%H', datetime(e.ts, '+3 hours')) AS INTEGER) >= ?
+                GROUP BY p.fio, date(e.ts), strftime('%H:%M', datetime(e.ts, '+3 hours'))
+                ORDER BY work_date DESC, arrival_time DESC
+            """, (f"{start_date}T00:00:00", f"{end_date}T23:59:59", late_threshold_hours))
+            
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_overtime_report(self, start_date: str, end_date: str, standard_hours_per_day: float = 8.0) -> List[Dict[str, Any]]:
+        """
+        Получить отчет по переработкам.
+        
+        Args:
+            start_date, end_date: Период (YYYY-MM-DD)
+            standard_hours_per_day: Стандартное количество часов в день
+        
+        Returns:
+            Список записей с информацией о переработках
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    p.fio,
+                    date(e.ts) as work_date,
+                    (strftime('%s', MAX(CASE WHEN e2.action = 'out' THEN e2.ts END)) -
+                     strftime('%s', MIN(CASE WHEN e2.action = 'in' THEN e2.ts END))) / 3600.0 as work_hours
+                FROM events e
+                JOIN people p ON e.user_id = p.tg_user_id
+                JOIN events e2 ON e2.user_id = e.user_id AND date(e2.ts) = date(e.ts)
+                WHERE e.ts >= ? AND e.ts <= ?
+                AND e.action = 'in'
+                GROUP BY p.fio, date(e.ts)
+                HAVING work_hours > ?
+                ORDER BY work_hours DESC
+            """, (f"{start_date}T00:00:00", f"{end_date}T23:59:59", standard_hours_per_day))
+            
+            results = []
+            for row in cursor.fetchall():
+                work_hours = row[2]
+                overtime = work_hours - standard_hours_per_day
+                results.append({
+                    "fio": row[0],
+                    "work_date": row[1],
+                    "work_hours": round(work_hours, 2),
+                    "standard_hours": standard_hours_per_day,
+                    "overtime": round(overtime, 2)
+                })
+            
+            return results
+
+    def get_weekly_distribution(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        """
+        Получить распределение рабочего времени по дням недели.
+        
+        Args:
+            start_date, end_date: Период (YYYY-MM-DD)
+        
+        Returns:
+            Dict с распределением по дням недели
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    CASE CAST(strftime('%w', date(ts)) AS INTEGER)
+                        WHEN 0 THEN 'Воскресенье'
+                        WHEN 1 THEN 'Понедельник'
+                        WHEN 2 THEN 'Вторник'
+                        WHEN 3 THEN 'Среда'
+                        WHEN 4 THEN 'Четверг'
+                        WHEN 5 THEN 'Пятница'
+                        WHEN 6 THEN 'Суббота'
+                    END as day_of_week,
+                    COUNT(DISTINCT user_id) as unique_users,
+                    COUNT(CASE WHEN action = 'in' THEN 1 END) as checkins,
+                    COUNT(CASE WHEN action = 'out' THEN 1 END) as checkouts
+                FROM events
+                WHERE ts >= ? AND ts <= ?
+                GROUP BY strftime('%w', date(ts))
+                ORDER BY strftime('%w', date(ts))
+            """, (f"{start_date}T00:00:00", f"{end_date}T23:59:59"))
+            
+            distribution = {}
+            for row in cursor.fetchall():
+                distribution[row[0]] = {
+                    "unique_users": row[1],
+                    "checkins": row[2],
+                    "checkouts": row[3]
+                }
+            
+            return distribution
+
+    def add_audit_log_entry(
+        self,
+        action_type: str,
+        user_id: Optional[int] = None,
+        username: Optional[str] = None,
+        target_type: Optional[str] = None,
+        target_id: Optional[int] = None,
+        details: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> int:
+        """
+        Добавить запись в журнал аудита.
+        
+        Args:
+            action_type: Тип действия (например, 'user_created', 'user_updated', 'export_report')
+            user_id: ID пользователя, выполнившего действие
+            username: Имя пользователя
+            target_type: Тип объекта действия (например, 'user', 'report')
+            target_id: ID объекта действия
+            details: Дополнительные детали (JSON строка)
+            ip_address: IP адрес
+            user_agent: User-Agent заголовок
+        
+        Returns:
+            ID созданной записи
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            now = datetime.now(timezone.utc).isoformat()
+            
+            cursor.execute("""
+                INSERT INTO audit_log 
+                (action_type, user_id, username, target_type, target_id, details, ip_address, user_agent, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (action_type, user_id, username, target_type, target_id, details, ip_address, user_agent, now))
+            
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_audit_log(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        action_type: Optional[str] = None,
+        user_id: Optional[int] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Получить записи из журнала аудита.
+        
+        Args:
+            limit: Максимальное количество записей
+            offset: Смещение для пагинации
+            action_type: Фильтр по типу действия
+            user_id: Фильтр по ID пользователя
+            start_date, end_date: Фильтр по дате (YYYY-MM-DD)
+        
+        Returns:
+            Список записей аудита
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            query = "SELECT * FROM audit_log WHERE 1=1"
+            params = []
+            
+            if action_type:
+                query += " AND action_type = ?"
+                params.append(action_type)
+            
+            if user_id:
+                query += " AND user_id = ?"
+                params.append(user_id)
+            
+            if start_date:
+                query += " AND created_at >= ?"
+                params.append(f"{start_date}T00:00:00")
+            
+            if end_date:
+                query += " AND created_at <= ?"
+                params.append(f"{end_date}T23:59:59")
+            
+            query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def create_vacation(
+        self,
+        user_id: int,
+        start_date: str,
+        end_date: str,
+        vacation_type: str = "annual",
+        created_by: Optional[int] = None,
+        notes: Optional[str] = None
+    ) -> int:
+        """Создать запись об отпуске"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+            days_count = (end - start).days + 1
+            
+            now = datetime.now(timezone.utc).isoformat()
+            
+            cursor.execute("""
+                INSERT INTO vacations 
+                (user_id, start_date, end_date, days_count, vacation_type, status, created_by, created_at, notes)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+            """, (user_id, start_date, end_date, days_count, vacation_type, created_by, now, notes))
+            
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_vacations(
+        self,
+        user_id: Optional[int] = None,
+        status: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Получить список отпусков"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            query = """
+                SELECT v.*, p.fio as employee_name
+                FROM vacations v
+                JOIN people p ON v.user_id = p.id
+                WHERE 1=1
+            """
+            params = []
+            
+            if user_id:
+                query += " AND v.user_id = ?"
+                params.append(user_id)
+            
+            if status:
+                query += " AND v.status = ?"
+                params.append(status)
+            
+            if start_date:
+                query += " AND v.end_date >= ?"
+                params.append(start_date)
+            
+            if end_date:
+                query += " AND v.start_date <= ?"
+                params.append(end_date)
+            
+            query += " ORDER BY v.start_date DESC"
+            
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def create_sick_leave(
+        self,
+        user_id: int,
+        start_date: str,
+        end_date: str,
+        created_by: Optional[int] = None,
+        notes: Optional[str] = None
+    ) -> int:
+        """Создать запись о больничном"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+            days_count = (end - start).days + 1
+            
+            now = datetime.now(timezone.utc).isoformat()
+            
+            cursor.execute("""
+                INSERT INTO sick_leaves 
+                (user_id, start_date, end_date, days_count, status, created_by, created_at, notes)
+                VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+            """, (user_id, start_date, end_date, days_count, created_by, now, notes))
+            
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_sick_leaves(
+        self,
+        user_id: Optional[int] = None,
+        status: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Получить список больничных"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            query = """
+                SELECT s.*, p.fio as employee_name
+                FROM sick_leaves s
+                JOIN people p ON s.user_id = p.id
+                WHERE 1=1
+            """
+            params = []
+            
+            if user_id:
+                query += " AND s.user_id = ?"
+                params.append(user_id)
+            
+            if status:
+                query += " AND s.status = ?"
+                params.append(status)
+            
+            if start_date:
+                query += " AND s.end_date >= ?"
+                params.append(start_date)
+            
+            if end_date:
+                query += " AND s.start_date <= ?"
+                params.append(end_date)
+            
+            query += " ORDER BY s.start_date DESC"
+            
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def create_report_template(
+        self,
+        name: str,
+        template_type: str,
+        config: str,
+        created_by: Optional[int] = None,
+        description: Optional[str] = None
+    ) -> int:
+        """Создать шаблон отчета"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            now = datetime.now(timezone.utc).isoformat()
+            
+            cursor.execute("""
+                INSERT INTO report_templates 
+                (name, description, template_type, config, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (name, description, template_type, config, created_by, now))
+            
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_report_templates(self, template_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Получить список шаблонов отчетов"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            if template_type:
+                cursor.execute("""
+                    SELECT * FROM report_templates 
+                    WHERE template_type = ?
+                    ORDER BY created_at DESC
+                """, (template_type,))
+            else:
+                cursor.execute("SELECT * FROM report_templates ORDER BY created_at DESC")
+            
+            return [dict(row) for row in cursor.fetchall()]
+
+    def delete_report_template(self, template_id: int) -> bool:
+        """Удалить шаблон отчета"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM report_templates WHERE id = ?", (template_id,))
+            conn.commit()
+            return cursor.rowcount > 0

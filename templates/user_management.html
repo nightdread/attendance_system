@@ -64,8 +64,14 @@
             margin-top: 0;
             color: var(--text);
         }
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 1rem 0;
+        }
         table {
             width: 100%;
+            min-width: 800px;
             border-collapse: collapse;
             margin-top: 1rem;
         }
@@ -368,6 +374,7 @@
             <a href="#" class="add-user-btn" onclick="alert('Функционал добавления пользователей будет реализован позже')">➕ Добавить пользователя</a>
 
             {% if users %}
+            <div class="table-wrapper">
             <table>
                 <thead>
                     <tr>
@@ -409,6 +416,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <div class="no-data">
                 <p>Пользователи не найдены</p>
@@ -419,6 +427,7 @@
         <div class="section">
             <h2>Роли пользователей</h2>
             {% if roles %}
+            <div class="table-wrapper">
             <table>
                 <thead>
                     <tr>
@@ -439,6 +448,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            </div>
             {% else %}
             <div class="no-data">
                 <p>Роли не найдены</p>

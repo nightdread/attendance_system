@@ -152,3 +152,7 @@ def get_timezone():
 
 TIMEZONE = get_timezone()
 TIMEZONE_OFFSET_HOURS = int(os.getenv("TIMEZONE_OFFSET_HOURS", "3"))  # Default GMT+3
+
+# IP Whitelist for admin access (optional, comma-separated)
+ADMIN_IP_WHITELIST = os.getenv("ADMIN_IP_WHITELIST", "").split(",") if os.getenv("ADMIN_IP_WHITELIST") else []
+ADMIN_IP_WHITELIST = [ip.strip() for ip in ADMIN_IP_WHITELIST if ip.strip()]

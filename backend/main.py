@@ -10,6 +10,7 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
+from collections import defaultdict
 from pathlib import Path
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,8 +20,14 @@ from config import (
     BOT_USERNAME, WEB_USERNAME, WEB_PASSWORD,
     API_HOST, API_PORT, QR_UPDATE_INTERVAL, SECRET_KEY, SESSION_SECRET_KEY, API_KEY, DB_PATH
 )
+from config.config import ADMIN_IP_WHITELIST
 from database import Database
 from auth.jwt_handler import JWTHandler
+from backend.schemas import (
+    TokenResponse, ErrorResponse, UserResponse, UserUpdateRequest,
+    HealthCheckResponse, MetricsResponse, AnalyticsSummaryResponse,
+    DailyStatsResponse, EmployeeStatsResponse
+)
 from utils.logger import (
     log_error, log_request, log_auth_event,
     log_failed_login, log_successful_login, log_role_change,
@@ -120,6 +127,23 @@ LOGIN_BLOCK_SEC = 900   # block 15 minutes
 LOGIN_ATTEMPTS = defaultdict(list)
 
 
+def check_ip_whitelist(request: Request) -> bool:
+    """Проверить IP адрес против whitelist администраторов"""
+    if not ADMIN_IP_WHITELIST:
+        return True  # Если whitelist не настроен, разрешаем всем
+    
+    client_ip = request.client.host if request.client else None
+    if not client_ip:
+        return False
+    
+    # Проверяем прямой IP и X-Forwarded-For заголовок
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # Берем первый IP из цепочки прокси
+        client_ip = forwarded_for.split(",")[0].strip()
+    
+    return client_ip in ADMIN_IP_WHITELIST
+
 def authorize_request(
     request: Request,
     require_roles: list[str] | None = None,
@@ -130,6 +154,7 @@ def authorize_request(
     - If API_KEY is set, require matching X-API-Key header.
     - Else, allow authenticated session (access_token in session or bearer header).
     - Optionally allow terminal session flag (set on public terminal page) for read-only endpoints.
+    - If ADMIN_IP_WHITELIST is set and require_roles includes "admin", check IP whitelist.
     """
     # API key check (if configured and header provided)
     if API_KEY:
@@ -161,6 +186,14 @@ def authorize_request(
 
     role = payload.get("role", "user")
     username = payload.get("sub")
+    
+    # Проверка IP whitelist для администраторов
+    if require_roles and "admin" in require_roles and role == "admin":
+        if not check_ip_whitelist(request):
+            client_ip = request.client.host if request.client else "unknown"
+            log_unauthorized_access(str(request.url.path), user=username, ip_address=client_ip, reason="IP not in admin whitelist")
+            raise HTTPException(status_code=403, detail="Forbidden: IP address not allowed")
+    
     if require_roles and role not in require_roles:
         client_ip = request.client.host if request.client else "unknown"
         log_unauthorized_access(str(request.url.path), user=username, ip_address=client_ip, reason=f"Insufficient permissions: role '{role}' not in {require_roles}")
@@ -168,15 +201,24 @@ def authorize_request(
 
     return payload
 
-# Mount static files (disabled - no static files needed)
-# app.mount("/static", StaticFiles(directory="../static"), name="static")
-
 # Resolve paths that work both locally and inside Docker
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
+
+# Mount static files
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Templates
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Add custom Jinja2 filters
+def format_hours_filter(hours: float) -> str:
+    """Jinja2 filter to format hours as HH:MM"""
+    return format_hours_to_hhmm_util(hours)
+
+templates.env.filters["format_hours"] = format_hours_filter
 
 # Database instance
 db = Database(str(DB_PATH))
@@ -339,8 +381,8 @@ async def login(
     next_url: str = Form("/terminal"),
     csrf_token: str = Form(None)
 ):
-    # Проверка CSRF токена
-    await require_csrf_token(request)
+    # Проверка CSRF токена (передаем токен из формы)
+    await require_csrf_token(request, form_token=csrf_token)
     
     # Валидация входных данных
     username = sanitize_string(username, max_length=50)
@@ -770,8 +812,21 @@ async def update_user(
 ):
     """Update user"""
     rate_limit(request, max_requests=10, window_seconds=60, key_prefix="user_mgmt")
-    # Проверка CSRF токена
-    await require_csrf_token(request)
+    
+    # Parse JSON body first to get CSRF token
+    form_token = None
+    try:
+        body = await request.json()
+        # For JSON requests, CSRF token should be in header
+    except:
+        # Fallback to form data
+        form = await request.form()
+        body = dict(form)
+        # Get CSRF token from form if present
+        form_token = body.get("csrf_token")
+    
+    # Проверка CSRF токена (передаем токен из формы, если есть)
+    await require_csrf_token(request, form_token=form_token)
     # Authorize and get payload once
     payload = authorize_request(request, require_roles=["admin", "manager"])
     
@@ -784,23 +839,6 @@ async def update_user(
     user = db.get_web_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Parse JSON body
-    try:
-        body = await request.json()
-        # For JSON requests, CSRF token should be in header (already checked by require_csrf_token)
-    except:
-        # Fallback to form data
-        form = await request.form()
-        body = dict(form)
-        # For form data, CSRF token should be checked by require_csrf_token above
-        # But we also check it here for form submissions
-        form_csrf_token = body.get("csrf_token")
-        if form_csrf_token:
-            # Validate form CSRF token
-            from utils.csrf import validate_csrf_token
-            if not validate_csrf_token(request, form_csrf_token):
-                raise HTTPException(status_code=403, detail="Invalid CSRF token")
         # Convert is_active string to boolean
         if 'is_active' in body:
             body['is_active'] = body['is_active'].lower() in ('true', '1', 'yes', 'on')
@@ -1144,11 +1182,13 @@ async def health_check(db: Database = Depends(get_db)):
     try:
         redis_metrics = get_redis_metrics()
         health_status["checks"]["redis"] = redis_metrics
-        if cache.redis_enabled and not redis_metrics.get("connected"):
+        from config.config import REDIS_ENABLED
+        if REDIS_ENABLED and cache.redis_client and not redis_metrics.get("connected"):
             overall_healthy = False
     except Exception as e:
         health_status["checks"]["redis"] = {"status": "error", "error": str(e)}
-        if cache.redis_enabled:
+        from config.config import REDIS_ENABLED
+        if REDIS_ENABLED and cache.redis_client:
             overall_healthy = False
     
     # System metrics (optional, don't fail if unavailable)
@@ -1167,6 +1207,453 @@ async def health_check(db: Database = Depends(get_db)):
         content=json.dumps(health_status, indent=2),
         media_type="application/json",
         status_code=status_code
+    )
+
+@app.get("/api/analytics/compare")
+async def analytics_compare(
+    request: Request,
+    period1_start: str,
+    period1_end: str,
+    period2_start: str,
+    period2_end: str,
+    db: Database = Depends(get_db)
+):
+    """Сравнить два периода по метрикам"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    try:
+        datetime.strptime(period1_start, "%Y-%m-%d")
+        datetime.strptime(period1_end, "%Y-%m-%d")
+        datetime.strptime(period2_start, "%Y-%m-%d")
+        datetime.strptime(period2_end, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    return db.compare_periods(period1_start, period1_end, period2_start, period2_end)
+
+@app.get("/api/analytics/late-arrivals")
+async def analytics_late_arrivals(
+    request: Request,
+    start_date: str,
+    end_date: str,
+    late_threshold_hours: int = 9,
+    db: Database = Depends(get_db)
+):
+    """Получить статистику опозданий"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    try:
+        datetime.strptime(start_date, "%Y-%m-%d")
+        datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    return db.get_late_arrivals_stats(start_date, end_date, late_threshold_hours)
+
+@app.get("/api/analytics/overtime")
+async def analytics_overtime(
+    request: Request,
+    start_date: str,
+    end_date: str,
+    standard_hours_per_day: float = 8.0,
+    db: Database = Depends(get_db)
+):
+    """Получить отчет по переработкам"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    try:
+        datetime.strptime(start_date, "%Y-%m-%d")
+        datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    return db.get_overtime_report(start_date, end_date, standard_hours_per_day)
+
+@app.get("/api/analytics/weekly-distribution")
+async def analytics_weekly_distribution(
+    request: Request,
+    start_date: str,
+    end_date: str,
+    db: Database = Depends(get_db)
+):
+    """Получить распределение рабочего времени по дням недели"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    try:
+        datetime.strptime(start_date, "%Y-%m-%d")
+        datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    return db.get_weekly_distribution(start_date, end_date)
+
+@app.get("/api/audit-log")
+async def get_audit_log(
+    request: Request,
+    limit: int = 100,
+    offset: int = 0,
+    action_type: str = None,
+    user_id: int = None,
+    start_date: str = None,
+    end_date: str = None,
+    db: Database = Depends(get_db)
+):
+    """Получить записи журнала аудита"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_audit")
+    authorize_request(request, require_roles=["admin"])
+    
+    return db.get_audit_log(limit, offset, action_type, user_id, start_date, end_date)
+
+@app.get("/api/vacations")
+async def get_vacations(
+    request: Request,
+    user_id: int = None,
+    status: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    db: Database = Depends(get_db)
+):
+    """Получить список отпусков"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_vacations")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    return db.get_vacations(user_id, status, start_date, end_date)
+
+@app.post("/api/vacations")
+async def create_vacation(
+    request: Request,
+    user_id: int,
+    start_date: str,
+    end_date: str,
+    vacation_type: str = "annual",
+    notes: str = None,
+    db: Database = Depends(get_db)
+):
+    """Создать запись об отпуске"""
+    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_vacations")
+    payload = authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    current_user = db.get_web_user_by_username(payload.get("sub"))
+    created_by = current_user.get("id") if current_user else None
+    
+    vacation_id = db.create_vacation(user_id, start_date, end_date, vacation_type, created_by, notes)
+    
+    # Логируем действие
+    db.add_audit_log_entry(
+        "vacation_created",
+        user_id=created_by,
+        username=payload.get("sub"),
+        target_type="vacation",
+        target_id=vacation_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent")
+    )
+    
+    return {"id": vacation_id, "status": "created"}
+
+@app.get("/api/sick-leaves")
+async def get_sick_leaves(
+    request: Request,
+    user_id: int = None,
+    status: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    db: Database = Depends(get_db)
+):
+    """Получить список больничных"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_sick_leaves")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    return db.get_sick_leaves(user_id, status, start_date, end_date)
+
+@app.post("/api/sick-leaves")
+async def create_sick_leave(
+    request: Request,
+    user_id: int,
+    start_date: str,
+    end_date: str,
+    notes: str = None,
+    db: Database = Depends(get_db)
+):
+    """Создать запись о больничном"""
+    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_sick_leaves")
+    payload = authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    current_user = db.get_web_user_by_username(payload.get("sub"))
+    created_by = current_user.get("id") if current_user else None
+    
+    sick_leave_id = db.create_sick_leave(user_id, start_date, end_date, created_by, notes)
+    
+    # Логируем действие
+    db.add_audit_log_entry(
+        "sick_leave_created",
+        user_id=created_by,
+        username=payload.get("sub"),
+        target_type="sick_leave",
+        target_id=sick_leave_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent")
+    )
+    
+    return {"id": sick_leave_id, "status": "created"}
+
+@app.get("/api/report-templates")
+async def get_report_templates(
+    request: Request,
+    template_type: str = None,
+    db: Database = Depends(get_db)
+):
+    """Получить список шаблонов отчетов"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_templates")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    return db.get_report_templates(template_type)
+
+@app.post("/api/report-templates")
+async def create_report_template(
+    request: Request,
+    name: str,
+    template_type: str,
+    config: str,
+    description: str = None,
+    db: Database = Depends(get_db)
+):
+    """Создать шаблон отчета"""
+    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_templates")
+    payload = authorize_request(request, require_roles=["admin", "manager"])
+    
+    current_user = db.get_web_user_by_username(payload.get("sub"))
+    created_by = current_user.get("id") if current_user else None
+    
+    template_id = db.create_report_template(name, template_type, config, created_by, description)
+    
+    return {"id": template_id, "status": "created"}
+
+@app.delete("/api/report-templates/{template_id}")
+async def delete_report_template(
+    request: Request,
+    template_id: int,
+    db: Database = Depends(get_db)
+):
+    """Удалить шаблон отчета"""
+    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_templates")
+    payload = authorize_request(request, require_roles=["admin"])
+    
+    success = db.delete_report_template(template_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    return {"status": "deleted"}
+
+@app.post("/api/export/send-email")
+async def send_report_email(
+    request: Request,
+    to_email: str,
+    report_type: str,
+    start_date: str = None,
+    end_date: str = None,
+    period: str = None,
+    format: str = "xlsx",
+    db: Database = Depends(get_db)
+):
+    """Отправить отчет по email"""
+    rate_limit(request, max_requests=5, window_seconds=60, key_prefix="export_email")
+    payload = authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    from utils.email_sender import email_sender
+    from email_validator import validate_email, EmailNotValidError
+    import tempfile
+    
+    # Валидация email
+    try:
+        validate_email(to_email)
+    except EmailNotValidError:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    
+    # Генерируем отчет
+    today = datetime.now(timezone.utc).date()
+    
+    if period == "last_week":
+        end = today - timedelta(days=1)
+        start = end - timedelta(days=6)
+    elif period == "last_month":
+        end = today - timedelta(days=1)
+        start = end - timedelta(days=29)
+    elif period == "current_month":
+        start = today.replace(day=1)
+        end = today
+    elif start_date and end_date:
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        raise HTTPException(status_code=400, detail="Either period or start_date+end_date must be provided")
+    
+    # Создаем временный файл
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{format}") as tmp_file:
+        report_path = Path(tmp_file.name)
+        
+        if report_type == "pivot":
+            report_data = db.get_pivot_report(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+            
+            if format == "xlsx":
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, Alignment, PatternFill
+                
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Отчет"
+                
+                ws['A1'] = "Сотрудник"
+                header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                header_font = Font(bold=True, color="FFFFFF")
+                ws['A1'].fill = header_fill
+                ws['A1'].font = header_font
+                
+                col = 2
+                for day in report_data['days']:
+                    cell = ws.cell(row=1, column=col)
+                    cell.value = datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m")
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    col += 1
+                
+                total_col = col
+                ws.cell(row=1, column=total_col).value = "Итого"
+                ws.cell(row=1, column=total_col).fill = header_fill
+                ws.cell(row=1, column=total_col).font = header_font
+                
+                row = 2
+                for employee in report_data['employees']:
+                    employee_id = employee['id']
+                    ws.cell(row=row, column=1).value = employee['fio']
+                    
+                    col = 2
+                    for day in report_data['days']:
+                        hours = report_data['data'][employee_id].get(day, 0)
+                        ws.cell(row=row, column=col).value = format_hours_to_hhmm_util(hours)
+                        col += 1
+                    
+                    total_hours = report_data['totals'][employee_id]
+                    ws.cell(row=row, column=total_col).value = format_hours_to_hhmm_util(total_hours)
+                    ws.cell(row=row, column=total_col).font = Font(bold=True)
+                    row += 1
+                
+                ws.column_dimensions['A'].width = 25
+                wb.save(report_path)
+        
+        # Отправляем email
+        report_name = f"Отчет_{report_type}_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}"
+        subject = f"Отчет: {report_name}"
+        
+        success = email_sender.send_report_email(
+            to_email=to_email,
+            subject=subject,
+            report_file=report_path,
+            report_name=report_name
+        )
+        
+        # Удаляем временный файл
+        try:
+            report_path.unlink()
+        except:
+            pass
+        
+        if success:
+            # Логируем отправку
+            username = payload.get("sub", "unknown")
+            log_data_export("email_report", username, {"to": to_email, "report_type": report_type})
+            return {"status": "sent", "to": to_email}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+
+@app.get("/api/export/ical")
+async def export_ical(
+    request: Request,
+    user_id: int = None,
+    start_date: str = None,
+    end_date: str = None,
+    db: Database = Depends(get_db)
+):
+    """Экспорт событий в формат iCal (.ics)"""
+    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="export_ical")
+    payload = authorize_request(request, require_roles=["admin", "manager", "hr", "user"])
+    
+    from icalendar import Calendar, Event
+    from datetime import datetime as dt
+    
+    # Если user_id не указан и роль user, используем текущего пользователя
+    if not user_id and payload.get("role") == "user":
+        # Нужно получить user_id из токена или сессии
+        # Пока используем переданный параметр
+        pass
+    
+    if not start_date:
+        start_date = (datetime.now(timezone.utc).date() - timedelta(days=30)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now(timezone.utc).date().strftime("%Y-%m-%d")
+    
+    # Получаем события
+    if user_id:
+        person = db.get_person_by_id(user_id)
+        if not person:
+            raise HTTPException(status_code=404, detail="User not found")
+        events = db.get_events_by_period(person['tg_user_id'], f"{start_date}T00:00:00", f"{end_date}T23:59:59")
+    else:
+        # Все события за период
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT e.*, p.fio
+                FROM events e
+                JOIN people p ON e.user_id = p.tg_user_id
+                WHERE e.ts >= ? AND e.ts <= ?
+                ORDER BY e.ts
+            """, (f"{start_date}T00:00:00", f"{end_date}T23:59:59"))
+            events = [dict(row) for row in cursor.fetchall()]
+    
+    # Создаем календарь
+    cal = Calendar()
+    cal.add('prodid', '-//Attendance System//EN')
+    cal.add('version', '2.0')
+    cal.add('calscale', 'GREGORIAN')
+    cal.add('method', 'PUBLISH')
+    
+    # Группируем события по дням для создания событий работы
+    daily_events = defaultdict(list)
+    for event in events:
+        event_date = event['ts'][:10]
+        daily_events[event_date].append(event)
+    
+    for date_str, day_events in daily_events.items():
+        checkins = [e for e in day_events if e['action'] == 'in']
+        checkouts = [e for e in day_events if e['action'] == 'out']
+        
+        if checkins and checkouts:
+            checkin_time = datetime.fromisoformat(checkins[0]['ts'].replace('Z', '+00:00'))
+            checkout_time = datetime.fromisoformat(checkouts[-1]['ts'].replace('Z', '+00:00'))
+            
+            work_hours = (checkout_time - checkin_time).total_seconds() / 3600
+            
+            event = Event()
+            event.add('summary', f'Рабочий день: {format_hours_to_hhmm_util(work_hours)}')
+            event.add('dtstart', checkin_time)
+            event.add('dtend', checkout_time)
+            event.add('description', f'Приход: {checkin_time.strftime("%H:%M")}, Уход: {checkout_time.strftime("%H:%M")}')
+            cal.add_component(event)
+    
+    # Возвращаем файл
+    filename = f"attendance_{start_date}_{end_date}.ics"
+    return Response(
+        content=cal.to_ical(),
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
 @app.get(
@@ -1217,6 +1704,176 @@ async def get_metrics(db: Database = Depends(get_db)):
         pass
     
     return metrics
+
+def format_hours_to_hhmm_util(hours: float) -> str:
+    """Утилита для форматирования часов в ЧЧ:ММ"""
+    if hours <= 0:
+        return "-"
+    whole_hours = int(hours)
+    minutes = int((hours - whole_hours) * 60)
+    return f"{whole_hours}:{minutes:02d}"
+
+@app.get("/api/export/pivot")
+async def export_pivot_report(
+    request: Request,
+    start_date: str = None,
+    end_date: str = None,
+    period: str = None,  # "last_week", "last_month", "current_month"
+    format: str = "csv",  # "csv" or "xlsx"
+    db: Database = Depends(get_db)
+):
+    """
+    Экспорт отчета в формате сводной таблицы (pivot table).
+    
+    Формат: фамилии слева, дни сверху, часы на пересечении.
+    
+    Параметры:
+    - start_date, end_date: даты в формате YYYY-MM-DD
+    - period: "last_week", "last_month", "current_month" (альтернатива датам)
+    - format: "csv" или "xlsx"
+    """
+    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="export")
+    payload = authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    # Логируем экспорт
+    username = payload.get("sub", "unknown")
+    log_data_export("pivot_report", username, {"period": period, "format": format})
+    
+    # Определяем период
+    today = datetime.now(timezone.utc).date()
+    
+    if period == "last_week":
+        end = today - timedelta(days=1)
+        start = end - timedelta(days=6)
+    elif period == "last_month":
+        end = today - timedelta(days=1)
+        start = end - timedelta(days=29)  # Последние 30 дней
+    elif period == "current_month":
+        start = today.replace(day=1)
+        end = today
+    elif start_date and end_date:
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        raise HTTPException(status_code=400, detail="Either period or start_date+end_date must be provided")
+    
+    # Получаем данные
+    report_data = db.get_pivot_report(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+    
+    if format == "xlsx":
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, PatternFill
+            import io
+            
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Отчет"
+            
+            # Заголовок
+            ws['A1'] = "Сотрудник"
+            header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF")
+            ws['A1'].fill = header_fill
+            ws['A1'].font = header_font
+            ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
+            
+            # Дни в заголовках
+            col = 2
+            for day in report_data['days']:
+                cell = ws.cell(row=1, column=col)
+                cell.value = datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m")
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                col += 1
+            
+            # Итого
+            total_col = col
+            ws.cell(row=1, column=total_col).value = "Итого"
+            ws.cell(row=1, column=total_col).fill = header_fill
+            ws.cell(row=1, column=total_col).font = header_font
+            ws.cell(row=1, column=total_col).alignment = Alignment(horizontal="center", vertical="center")
+            
+            # Данные
+            row = 2
+            for employee in report_data['employees']:
+                employee_id = employee['id']
+                fio = employee['fio']
+                
+                # Фамилия
+                ws.cell(row=row, column=1).value = fio
+                
+                # Часы по дням
+                col = 2
+                for day in report_data['days']:
+                    hours = report_data['data'][employee_id].get(day, 0)
+                    cell = ws.cell(row=row, column=col)
+                    cell.value = format_hours_to_hhmm_util(hours)
+                    cell.alignment = Alignment(horizontal="center")
+                    col += 1
+                
+                # Итого
+                total_hours = report_data['totals'][employee_id]
+                ws.cell(row=row, column=total_col).value = format_hours_to_hhmm_util(total_hours)
+                ws.cell(row=row, column=total_col).font = Font(bold=True)
+                ws.cell(row=row, column=total_col).alignment = Alignment(horizontal="center")
+                
+                row += 1
+            
+            # Автоподбор ширины колонок
+            ws.column_dimensions['A'].width = 25
+            for col_idx in range(2, total_col + 1):
+                ws.column_dimensions[chr(64 + col_idx)].width = 12
+            
+            # Сохраняем в память
+            output = io.BytesIO()
+            wb.save(output)
+            output.seek(0)
+            
+            filename = f"pivot_report_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.xlsx"
+            return Response(
+                content=output.read(),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+            )
+        except ImportError:
+            raise HTTPException(status_code=500, detail="Excel export requires openpyxl library")
+    
+    else:  # CSV
+        import csv
+        import io
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Заголовки
+        headers = ["Сотрудник"] + [datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m") for day in report_data['days']] + ["Итого"]
+        writer.writerow(headers)
+        
+        # Данные
+        for employee in report_data['employees']:
+            employee_id = employee['id']
+            fio = employee['fio']
+            row = [fio]
+            
+            for day in report_data['days']:
+                hours = report_data['data'][employee_id].get(day, 0)
+                row.append(format_hours_to_hhmm_util(hours))
+            
+            total_hours = report_data['totals'][employee_id]
+            row.append(format_hours_to_hhmm_util(total_hours))
+            writer.writerow(row)
+        
+        filename = f"pivot_report_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.csv"
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots():

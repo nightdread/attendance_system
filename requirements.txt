@@ -20,3 +20,13 @@ argon2-cffi==25.1.0
 itsdangerous==2.1.2
 apscheduler==3.10.4
 psutil==5.9.6
+
+# Excel export
+openpyxl==3.1.5
+
+# Calendar export
+icalendar==5.0.11
+
+# Email
+email-validator==2.1.0
+aiofiles==23.2.1
