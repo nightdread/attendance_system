@@ -1174,33 +1174,47 @@
 
         // Календарь посещаемости
         let currentCalendarDate = new Date();
-        let visitsData = {};
+        let calendarData = {}; // {date: {visits: number, hours: number}}
 
         // Загружаем данные о посещаемости для календаря
         async function loadCalendarData() {
             try {
-                const startDate = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), 1);
-                const endDate = new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth() + 1, 0);
+                const year = currentCalendarDate.getFullYear();
+                const month = currentCalendarDate.getMonth() + 1; // JavaScript months are 0-based
                 
-                // Используем данные из dailyVisitsData если они доступны
-                if (typeof dailyVisitsData !== 'undefined' && dailyVisitsData.length > 0) {
-                    visitsData = {};
-                    dailyVisitsData.forEach(item => {
-                        const date = new Date(item.date);
-                        const dateKey = date.toISOString().split('T')[0];
-                        visitsData[dateKey] = item.visits || 0;
-                    });
+                // Загружаем данные для текущего месяца через API
+                const response = await fetch(`/api/analytics/calendar/${year}/${month}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    calendarData = {};
+                    if (data.days && Array.isArray(data.days)) {
+                        data.days.forEach(day => {
+                            calendarData[day.date] = {
+                                visits: day.visits || 0,
+                                hours: day.hours || 0
+                            };
+                        });
+                    }
                 } else {
-                    // Загружаем данные через API
-                    const response = await fetch(`/api/analytics/weekly`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        visitsData = {};
-                        if (data.daily_stats) {
-                            data.daily_stats.forEach(item => {
-                                visitsData[item.date] = item.unique_users || 0;
-                            });
-                        }
+                    // Fallback: используем данные из dailyVisitsData если они доступны
+                    if (typeof dailyVisitsData !== 'undefined' && dailyVisitsData.length > 0) {
+                        calendarData = {};
+                        dailyVisitsData.forEach(item => {
+                            // Используем дату как есть, без конвертации через toISOString
+                            const dateKey = item.date;
+                            const dateParts = dateKey.split('-');
+                            if (dateParts.length === 3) {
+                                const itemYear = parseInt(dateParts[0]);
+                                const itemMonth = parseInt(dateParts[1]);
+                                // Проверяем, что дата относится к текущему месяцу
+                                if (itemYear === year && itemMonth === month) {
+                                    calendarData[dateKey] = {
+                                        visits: item.visits || 0,
+                                        hours: 0 // Нет данных о часах в dailyVisitsData
+                                    };
+                                }
+                            }
+                        });
                     }
                 }
                 
@@ -1255,19 +1269,26 @@
             
             for (let day = 1; day <= daysInMonth; day++) {
                 const date = new Date(year, month, day);
-                const dateKey = date.toISOString().split('T')[0];
-                const visits = visitsData[dateKey] || 0;
+                // Формируем dateKey в локальном времени, чтобы избежать смещения из-за UTC
+                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dayData = calendarData[dateKey] || {visits: 0, hours: 0};
+                const visits = dayData.visits || 0;
+                const hours = dayData.hours || 0;
                 const isToday = date.getTime() === today.getTime();
                 
                 let dayClasses = 'calendar-day';
                 if (isToday) dayClasses += ' today';
-                if (visits > 0) {
+                if (visits > 0 || hours > 0) {
                     dayClasses += ' has-visits';
                     if (visits > 5) dayClasses += ' many-visits';
                 }
                 
+                const titleText = hours > 0 
+                    ? `${dateKey}: ${visits} посещений, ${formatHoursToHHMM(hours)} работы`
+                    : `${dateKey}: ${visits} посещений`;
+                
                 calendarHTML += `
-                    <div class="${dayClasses}" data-date="${dateKey}" onclick="showDayEmployees('${dateKey}')" title="${dateKey}: ${visits} посещений">
+                    <div class="${dayClasses}" data-date="${dateKey}" onclick="showDayEmployees('${dateKey}')" title="${titleText}">
                         <div class="calendar-day-number">${day}</div>
                         ${visits > 0 ? `<div class="calendar-day-visits">${visits}</div>` : ''}
                     </div>

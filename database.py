@@ -1282,30 +1282,79 @@ class Database:
 
             thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
 
+            # Используем Python для точного расчета времени работы с учетом всех интервалов
             cursor.execute("""
                 SELECT
+                    p.id,
                     p.fio,
-                    COUNT(DISTINCT date(daily_work.work_date)) as work_days,
-                    ROUND(AVG(daily_work.work_hours), 1) as total_hours
-                FROM (
-                    SELECT
-                        user_id,
-                        date(ts) as work_date,
-                        (strftime('%s', MAX(CASE WHEN action = 'out' THEN ts END)) -
-                         strftime('%s', MIN(CASE WHEN action = 'in' THEN ts END))) / 3600.0 as work_hours
-                    FROM events
-                    WHERE ts >= ? AND action IN ('in', 'out')
-                    GROUP BY user_id, date(ts)
-                    HAVING work_hours > 0 AND work_hours < 24
-                ) daily_work
-                JOIN people p ON daily_work.user_id = p.tg_user_id
-                GROUP BY daily_work.user_id, p.fio
-                HAVING AVG(daily_work.work_hours) > 0
-                ORDER BY AVG(daily_work.work_hours) DESC
-                LIMIT ?
-            """, (thirty_days_ago, limit))
+                    p.tg_user_id,
+                    e.ts,
+                    e.action
+                FROM events e
+                JOIN people p ON e.user_id = p.tg_user_id
+                WHERE e.ts >= ? AND e.action IN ('in', 'out')
+                ORDER BY p.tg_user_id, e.ts
+            """, (thirty_days_ago,))
 
-            return [{'name': row[0], 'work_days': row[1], 'total_hours': row[2]} for row in cursor.fetchall()]
+            # Группируем события по пользователям и дням, считаем время работы
+            user_stats = {}
+            current_user = None
+            current_date = None
+            checkin_time = None
+            daily_hours = {}
+            
+            for row in cursor.fetchall():
+                user_id = row[2]  # tg_user_id (правильный индекс)
+                fio = row[1]      # fio (правильный индекс)
+                ts_str = row[3]   # ts
+                action = row[4]   # action
+                
+                # Парсим дату
+                event_time = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                event_date = event_time.date()
+                
+                key = (user_id, event_date)
+                
+                if key not in daily_hours:
+                    daily_hours[key] = {'fio': fio, 'total_seconds': 0, 'checkin_time': None}
+                
+                if action == 'in':
+                    daily_hours[key]['checkin_time'] = event_time
+                elif action == 'out' and daily_hours[key]['checkin_time']:
+                    checkout_time = event_time
+                    work_seconds = (checkout_time - daily_hours[key]['checkin_time']).total_seconds()
+                    if 0 < work_seconds < 86400:  # Валидация: от 0 до 24 часов
+                        daily_hours[key]['total_seconds'] += work_seconds
+                    daily_hours[key]['checkin_time'] = None
+            
+            # Агрегируем по пользователям
+            user_totals = {}
+            for (user_id, date), data in daily_hours.items():
+                if data['total_seconds'] > 0:
+                    if user_id not in user_totals:
+                        user_totals[user_id] = {
+                            'fio': data['fio'],
+                            'work_days': 0,
+                            'total_hours': 0.0
+                        }
+                    user_totals[user_id]['work_days'] += 1
+                    user_totals[user_id]['total_hours'] += data['total_seconds'] / 3600.0
+            
+            # Сортируем и возвращаем топ
+            sorted_users = sorted(
+                user_totals.values(),
+                key=lambda x: x['total_hours'],
+                reverse=True
+            )[:limit]
+            
+            return [
+                {
+                    'name': user['fio'],
+                    'work_days': user['work_days'],
+                    'total_hours': round(user['total_hours'], 1)
+                }
+                for user in sorted_users
+            ]
 
     def get_department_stats(self) -> List[Dict[str, Any]]:
         """Get statistics by department (includes both web users and regular employees)"""

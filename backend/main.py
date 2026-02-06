@@ -1291,6 +1291,117 @@ async def analytics_weekly_distribution(
     
     return db.get_weekly_distribution(start_date, end_date)
 
+@app.get("/api/analytics/calendar/{year}/{month}")
+async def analytics_calendar(
+    request: Request,
+    year: int,
+    month: int,
+    db: Database = Depends(get_db)
+):
+    """Получить данные календаря для конкретного месяца"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
+    
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="Invalid month. Must be 1-12")
+    
+    # Вычисляем диапазон дат для месяца
+    start_date = datetime(year, month, 1).date()
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+    else:
+        end_date = datetime(year, month + 1, 1).date() - timedelta(days=1)
+    
+    start_datetime = f"{start_date.isoformat()}T00:00:00"
+    end_datetime = f"{end_date.isoformat()}T23:59:59"
+    
+    # Получаем данные о посещениях и часах работы за месяц
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT
+                date(ts) as visit_date,
+                COUNT(DISTINCT user_id) as visits
+            FROM events
+            WHERE ts >= ? AND ts <= ? AND action = 'in'
+            GROUP BY date(ts)
+            ORDER BY date(ts)
+        """, (start_datetime, end_datetime))
+        
+        visits_data = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # Получаем все события за период для правильного расчета часов работы
+        cursor.execute("""
+            SELECT
+                user_id,
+                date(ts) as work_date,
+                ts,
+                action
+            FROM events
+            WHERE ts >= ? AND ts <= ? AND action IN ('in', 'out')
+            ORDER BY user_id, ts
+        """, (start_datetime, end_datetime))
+        
+        # Правильно считаем часы работы с учетом всех интервалов
+        hours_data = {}
+        user_daily_events = {}
+        
+        for row in cursor.fetchall():
+            user_id = row[0]
+            date_str = row[1]
+            ts_str = row[2]
+            action = row[3]
+            
+            key = (user_id, date_str)
+            if key not in user_daily_events:
+                user_daily_events[key] = []
+            
+            user_daily_events[key].append({
+                'ts': ts_str,
+                'action': action
+            })
+        
+        # Считаем часы работы для каждого пользователя и дня
+        for (user_id, date_str), events in user_daily_events.items():
+            total_seconds = 0
+            checkin_time = None
+            
+            # Сортируем события по времени
+            sorted_events = sorted(events, key=lambda x: x['ts'])
+            
+            for event in sorted_events:
+                event_time = datetime.fromisoformat(event['ts'].replace('Z', '+00:00'))
+                
+                if event['action'] == 'in':
+                    checkin_time = event_time
+                elif event['action'] == 'out' and checkin_time:
+                    checkout_time = event_time
+                    work_seconds = (checkout_time - checkin_time).total_seconds()
+                    if 0 < work_seconds < 86400:  # Валидация: от 0 до 24 часов
+                        total_seconds += work_seconds
+                    checkin_time = None
+            
+            if total_seconds > 0:
+                hours = total_seconds / 3600.0
+                if date_str not in hours_data:
+                    hours_data[date_str] = 0
+                hours_data[date_str] += hours
+        
+        # Объединяем данные
+        result = []
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.isoformat()
+            result.append({
+                'date': date_str,
+                'visits': visits_data.get(date_str, 0),
+                'hours': round(hours_data.get(date_str, 0), 1)
+            })
+            current_date += timedelta(days=1)
+        
+        return {'days': result}
+
 @app.get("/api/audit-log")
 async def get_audit_log(
     request: Request,
