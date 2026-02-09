@@ -23,8 +23,9 @@ class Database:
 
     @contextmanager
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
         try:
             yield conn
         finally:
@@ -278,11 +279,10 @@ class Database:
                 # Store for one-time display (not persisted)
                 self.initial_credentials = creds
 
-                # Print generated credentials to stdout (not stored in container)
-                print("[INIT] Default users created (empty DB detected):")
-                print(f"[INIT] Generated at: {now}")
-                for u, p, r in creds:
-                    print(f"[INIT] user={u} role={r} password={p}")
+                # Log that credentials were created (passwords shown only in admin UI on first load)
+                import logging
+                _init_logger = logging.getLogger("attendance.init")
+                _init_logger.warning("[INIT] Default users created (empty DB). Credentials available on first admin page load only.")
             else:
                 self.initial_credentials = []
 
@@ -403,6 +403,22 @@ class Database:
             if success:
                 invalidate_token(token)
 
+            return success
+
+    def mark_token_used_if_valid(self, token: str) -> bool:
+        """Atomically check if token is valid and mark it as used.
+        Prevents race condition where two users use the same token."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # Atomic UPDATE with WHERE conditions ensures only one caller succeeds
+            cursor.execute(
+                "UPDATE tokens SET used = 1 WHERE token = ? AND used = 0 AND (expires_at IS NULL OR expires_at > datetime('now'))",
+                (token,)
+            )
+            success = cursor.rowcount > 0
+            conn.commit()
+            if success:
+                invalidate_token(token)
             return success
 
     def get_token_location(self, token: str) -> Optional[str]:
@@ -606,6 +622,7 @@ class Database:
                 "UPDATE web_users SET role = ?, permissions = ? WHERE id = ?",
                 (role, permissions_json, user_id)
             )
+            conn.commit()
             return cursor.rowcount > 0
 
     def get_user_permissions(self, user_id: int) -> List[str]:
@@ -648,8 +665,9 @@ class Database:
                     "INSERT OR REPLACE INTO user_permissions (user_id, permission, granted_by, granted_at, expires_at) VALUES (?, ?, ?, ?, ?)",
                     (user_id, permission, granted_by, now, expires_at)
                 )
+                conn.commit()
                 return True
-            except Exception:
+            except sqlite3.IntegrityError:
                 return False
 
     def revoke_user_permission(self, user_id: int, permission: str) -> bool:
@@ -660,6 +678,7 @@ class Database:
                 "DELETE FROM user_permissions WHERE user_id = ? AND permission = ?",
                 (user_id, permission)
             )
+            conn.commit()
             return cursor.rowcount > 0
 
     def get_all_roles(self) -> List[Dict[str, Any]]:
@@ -687,6 +706,7 @@ class Database:
                 "INSERT INTO roles (name, display_name, description, permissions, is_system, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (name, display_name, description, json.dumps(permissions), 0, now)
             )
+            conn.commit()
             return cursor.lastrowid
 
     def get_users_by_role(self, role: str) -> List[Dict[str, Any]]:
@@ -737,6 +757,7 @@ class Database:
                 f"UPDATE web_users SET {', '.join(updates)} WHERE id = ?",
                 params
             )
+            conn.commit()
             return cursor.rowcount > 0
 
     def get_web_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
@@ -1592,20 +1613,54 @@ class Database:
                 days.append(current.strftime("%Y-%m-%d"))
                 current += timedelta(days=1)
             
-            # Инициализируем структуру данных
-            data = {}
-            totals = {}
-            
-            # Для каждого сотрудника вычисляем часы работы по дням
-            for employee in employees:
-                employee_id = employee['id']
-                tg_user_id = employee['tg_user_id']
-                data[employee_id] = {}
-                totals[employee_id] = 0.0
-                
-                for day in days:
-                    hours = self.get_work_time(tg_user_id, day)
-                    data[employee_id][day] = hours
+            # Fetch all events in the date range in a single query (avoids N+1)
+            tg_id_to_employee_id = {emp['tg_user_id']: emp['id'] for emp in employees}
+            tg_ids = list(tg_id_to_employee_id.keys())
+
+            data = {emp['id']: {} for emp in employees}
+            totals = {emp['id']: 0.0 for emp in employees}
+
+            if tg_ids:
+                placeholders = ','.join('?' * len(tg_ids))
+                cursor.execute(f"""
+                    SELECT user_id, action, ts
+                    FROM events
+                    WHERE user_id IN ({placeholders})
+                    AND ts >= ? AND ts <= ?
+                    ORDER BY user_id, ts
+                """, (*tg_ids, f"{start_date}T00:00:00", f"{end_date}T23:59:59"))
+
+                # Group events by (user_id, date) and calculate work hours via interval pairing
+                from collections import defaultdict
+                user_day_events = defaultdict(list)
+                for row in cursor.fetchall():
+                    uid = row[0]
+                    ts_str = row[2][:10]  # Extract YYYY-MM-DD
+                    user_day_events[(uid, ts_str)].append({'action': row[1], 'ts': row[2]})
+
+                for (tg_uid, day_str), events_list in user_day_events.items():
+                    employee_id = tg_id_to_employee_id.get(tg_uid)
+                    if employee_id is None:
+                        continue
+                    # Pair check-in/check-out intervals
+                    events_list.sort(key=lambda e: e['ts'])
+                    total_secs = 0
+                    checkin_time = None
+                    for ev in events_list:
+                        if ev['action'] == 'in':
+                            try:
+                                checkin_time = datetime.fromisoformat(ev['ts'].replace('Z', '+00:00'))
+                            except Exception:
+                                checkin_time = None
+                        elif ev['action'] == 'out' and checkin_time:
+                            try:
+                                checkout_time = datetime.fromisoformat(ev['ts'].replace('Z', '+00:00'))
+                                total_secs += (checkout_time - checkin_time).total_seconds()
+                            except Exception:
+                                pass
+                            checkin_time = None
+                    hours = total_secs / 3600
+                    data[employee_id][day_str] = hours
                     totals[employee_id] += hours
             
             return {

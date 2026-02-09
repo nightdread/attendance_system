@@ -1061,6 +1061,14 @@
             }
         });
 
+        // Экранирование HTML для предотвращения XSS
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
         // Функция форматирования часов в ЧЧ:ММ
         function formatHoursToHHMM(hours) {
             if (!hours || hours <= 0) return "-";
@@ -1099,11 +1107,11 @@
             // Basic info cards
             infoDiv.innerHTML = `
                 <div class="stat-card">
-                    <span class="stat-value">${data.fio}</span>
+                    <span class="stat-value">${escapeHtml(data.fio)}</span>
                     <div class="stat-label">ФИО</div>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-value">@${data.username || 'не указан'}</span>
+                    <span class="stat-value">@${escapeHtml(data.username || 'не указан')}</span>
                     <div class="stat-label">Username</div>
                 </div>
                 <div class="stat-card">
@@ -1125,8 +1133,8 @@
                             <tr><td>Всего приходов:</td><td style="text-align: right; font-weight: bold;">${data.total_checkins}</td></tr>
                             <tr><td>Всего уходов:</td><td style="text-align: right; font-weight: bold;">${data.total_checkouts}</td></tr>
                             <tr><td>Среднее время работы:</td><td style="text-align: right; font-weight: bold;">${formatHoursToHHMM(data.avg_work_time)}</td></tr>
-                            <tr><td>Первое посещение:</td><td style="text-align: right;">${data.first_visit || 'Нет данных'}</td></tr>
-                            <tr><td>Последнее посещение:</td><td style="text-align: right;">${data.last_visit || 'Нет данных'}</td></tr>
+                            <tr><td>Первое посещение:</td><td style="text-align: right;">${escapeHtml(data.first_visit || 'Нет данных')}</td></tr>
+                            <tr><td>Последнее посещение:</td><td style="text-align: right;">${escapeHtml(data.last_visit || 'Нет данных')}</td></tr>
                         </table>
                         </div>
                     </div>
@@ -1143,7 +1151,7 @@
 
             if (data.monthly_stats && data.monthly_stats.length > 0) {
                 data.monthly_stats.forEach(month => {
-                    detailsHtml += `<tr><td>${month.month}</td><td>${month.work_days}</td><td>${month.checkins}</td></tr>`;
+                    detailsHtml += `<tr><td>${escapeHtml(month.month)}</td><td>${escapeHtml(month.work_days)}</td><td>${escapeHtml(month.checkins)}</td></tr>`;
                 });
             } else {
                 detailsHtml += `<tr><td colspan="3" style="text-align: center;">Нет данных за последние месяцы</td></tr>`;
@@ -1169,7 +1177,7 @@
 
             if (data.recent_sessions && data.recent_sessions.length > 0) {
                 data.recent_sessions.forEach(session => {
-                    detailsHtml += `<tr><td>${session.work_date}</td><td>${session.checkin_time}</td><td>${session.checkout_time}</td><td>${formatHoursToHHMM(session.work_hours)}</td></tr>`;
+                    detailsHtml += `<tr><td>${escapeHtml(session.work_date)}</td><td>${escapeHtml(session.checkin_time)}</td><td>${escapeHtml(session.checkout_time)}</td><td>${formatHoursToHHMM(session.work_hours)}</td></tr>`;
                 });
             } else {
                 detailsHtml += `<tr><td colspan="4" style="text-align: center;">Нет данных о сессиях работы</td></tr>`;

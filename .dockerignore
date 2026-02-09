@@ -32,6 +32,11 @@ ENV/
 *.swp
 *.swo
 
+# Secrets (NEVER bake into image)
+.env
+.env.*
+!.env.example
+
 # OS
 .DS_Store
 Thumbs.db

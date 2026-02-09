@@ -126,6 +126,12 @@ LOGIN_BLOCK_SEC = 900   # block 15 minutes
 LOGIN_ATTEMPTS = defaultdict(list)
 
 
+TRUSTED_PROXIES = {"127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"}
+
+def _is_trusted_proxy(ip: str) -> bool:
+    """Check if IP belongs to a trusted proxy (Docker/local network)"""
+    return ip in ("127.0.0.1", "::1") or ip.startswith(("172.", "10.", "192.168."))
+
 def check_ip_whitelist(request: Request) -> bool:
     """Проверить IP адрес против whitelist администраторов"""
     if not ADMIN_IP_WHITELIST:
@@ -135,11 +141,11 @@ def check_ip_whitelist(request: Request) -> bool:
     if not client_ip:
         return False
     
-    # Проверяем прямой IP и X-Forwarded-For заголовок
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # Берем первый IP из цепочки прокси
-        client_ip = forwarded_for.split(",")[0].strip()
+    # Only trust X-Forwarded-For from known reverse proxies (Angie/Docker network)
+    if _is_trusted_proxy(client_ip):
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
     
     return client_ip in ADMIN_IP_WHITELIST
 
@@ -492,7 +498,8 @@ async def login(
 
             # Редирект на запрошенную страницу или по умолчанию
             # Админы могут попасть в админку, но по умолчанию все идут на терминал
-            redirect_to = next_url if next_url and next_url.startswith("/") else "/terminal"
+            # Validate redirect URL: must start with "/" but not "//" (protocol-relative redirect)
+            redirect_to = next_url if next_url and next_url.startswith("/") and not next_url.startswith("//") else "/terminal"
             return RedirectResponse(url=redirect_to, status_code=302)
         else:
             # Initialize list if key doesn't exist (defaultdict handles this, but being explicit)
@@ -503,7 +510,7 @@ async def login(
             log_failed_login(username, client_ip, reason="Invalid credentials")
             return templates.TemplateResponse(
                 "login.html",
-                {"request": request, "error": "Invalid credentials", "next_url": next_url}
+                {"request": request, "error": "Invalid credentials", "next_url": next_url, "csrf_token": get_csrf_token(request) or set_csrf_token(request)}
             )
     except Exception as e:
         log_error(e, "Login")
@@ -513,7 +520,7 @@ async def login(
         LOGIN_ATTEMPTS[client_ip].append(now)
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Login failed", "next_url": next_url}
+            {"request": request, "error": "Login failed", "next_url": next_url, "csrf_token": get_csrf_token(request) or set_csrf_token(request)}
         )
 
 @app.get("/terminal", response_class=HTMLResponse)
@@ -547,6 +554,8 @@ async def admin_page(request: Request, db: Database = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=302)
 
     user_role = request.session.get("user_role", "user")
+    if user_role not in ["admin", "manager", "hr"]:
+        return RedirectResponse(url="/me", status_code=302)
 
     # Get currently present users
     present_users = db.get_currently_present()
@@ -568,6 +577,10 @@ async def admin_page(request: Request, db: Database = Depends(get_db)):
 async def user_history(request: Request, user_id: int, db: Database = Depends(get_db)):
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login", status_code=302)
+
+    user_role = request.session.get("user_role", "user")
+    if user_role not in ["admin", "manager", "hr"]:
+        return RedirectResponse(url="/me", status_code=302)
 
     # Get user info
     user = db.get_person_by_tg_id(user_id)
@@ -818,7 +831,7 @@ async def update_user(
     try:
         body = await request.json()
         # For JSON requests, CSRF token should be in header
-    except:
+    except Exception:
         # Fallback to form data
         form = await request.form()
         body = dict(form)
@@ -839,9 +852,12 @@ async def update_user(
     user = db.get_web_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-        # Convert is_active string to boolean
-        if 'is_active' in body:
-            body['is_active'] = body['is_active'].lower() in ('true', '1', 'yes', 'on')
+
+    # Convert is_active string to boolean
+    if 'is_active' in body:
+        val = body['is_active']
+        if isinstance(val, str):
+            body['is_active'] = val.lower() in ('true', '1', 'yes', 'on')
     
     # Extract fields (only update provided fields)
     full_name = body.get('full_name')
@@ -935,8 +951,10 @@ async def update_user(
     ```
     """
 )
-async def get_employee_stats(employee_id: int, db: Database = Depends(get_db)):
+async def get_employee_stats(request: Request, employee_id: int, db: Database = Depends(get_db)):
     """Get detailed statistics for a specific employee"""
+    rate_limit(request, max_requests=30, window_seconds=60, key_prefix="api_analytics")
+    authorize_request(request, require_roles=["admin", "manager", "hr"])
     stats = db.get_employee_detailed_stats(employee_id)
     if not stats:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -1955,9 +1973,10 @@ async def export_pivot_report(
                 row += 1
             
             # Автоподбор ширины колонок
+            from openpyxl.utils import get_column_letter
             ws.column_dimensions['A'].width = 25
             for col_idx in range(2, total_col + 1):
-                ws.column_dimensions[chr(64 + col_idx)].width = 12
+                ws.column_dimensions[get_column_letter(col_idx)].width = 12
             
             # Сохраняем в память
             output = io.BytesIO()
@@ -2007,7 +2026,7 @@ async def export_pivot_report(
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots():
-    return "User-agent: *\nDisallow:\n"
+    return "User-agent: *\nDisallow: /\n"
 
 @app.get("/favicon.ico")
 async def favicon():

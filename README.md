@@ -206,13 +206,14 @@ PRODUCTION_CALENDAR_FILE=/app/data/production_calendar.json
 Формат файла:
 ```json
 {
-  "2024": {
-    "01-01": "holiday",
-    "01-07": "holiday",
-    ...
+  "2025": {
+    "holidays": ["2025-01-01", "2025-01-02", "2025-03-08"],
+    "workdays": ["2025-04-26"],
+    "short_days": ["2025-02-21", "2025-12-31"]
   }
 }
 ```
+Подробнее: см. `docs/PRODUCTION_CALENDAR.md`
 
 Производственный календарь используется для:
 - Выделения выходных дней в календаре аналитики
@@ -375,7 +376,7 @@ docker compose restart attendance_app attendance_bot
 - `JWT_SECRET_KEY_PREV` - предыдущий ключ для верификации старых токенов
 - Старые токены продолжают работать до истечения срока (обычно 30 минут)
 
-Подробнее: см. `JWT_ROTATION_GUIDE.md`
+Подробнее: см. `docs/JWT_ROTATION_GUIDE.md`
 
 ### Другие секреты
 - Сессии: `SESSION_SECRET_KEY` (по умолчанию `SECRET_KEY`). При смене ключа старые сессии станут невалидны — планируйте окна деплоя.
@@ -473,7 +474,7 @@ python3 tools/restore_db.py backups/attendance_backup_YYYYMMDD_HHMMSS.db.gz
 - Проверка целостности бэкапов
 - Опциональная загрузка в S3
 
-Подробнее: см. `BACKUP_README.md`
+Подробнее: см. `docs/BACKUP_README.md`
 
 ## Мониторинг и метрики
 

@@ -2,6 +2,7 @@
 CSRF (Cross-Site Request Forgery) protection utilities
 """
 import secrets
+from functools import wraps
 from typing import Optional
 from fastapi import Request, HTTPException, status
 from starlette.responses import Response
@@ -68,18 +69,10 @@ def validate_csrf_token(request: Request, token: Optional[str] = None) -> bool:
         # Try header first (for AJAX/fetch requests)
         token = request.headers.get("X-CSRF-Token")
         
-        # Try form data (for regular form submissions)
-        if not token:
-            try:
-                # For FastAPI, form data is available after parsing
-                # We'll check it in the endpoint handler
-                pass
-            except:
-                pass
+        # Form data is checked in require_csrf_token() via await request.form()
         
-        # Try query parameter (for GET requests that modify state - not recommended but sometimes needed)
-        if not token:
-            token = request.query_params.get("csrf_token")
+        # Query parameters intentionally NOT checked — tokens in URLs leak via
+        # Referer headers, server logs, and browser history.
     
     if not token:
         return False
@@ -116,7 +109,7 @@ async def require_csrf_token(request: Request, form_token: Optional[str] = None)
             if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
                 form = await request.form()
                 token = form.get("csrf_token")
-        except:
+        except Exception:
             pass
     
     if not validate_csrf_token(request, token):
@@ -133,10 +126,10 @@ async def require_csrf_token(request: Request, form_token: Optional[str] = None)
                     from auth.jwt_handler import JWTHandler
                     payload = JWTHandler.verify_token(user)
                     username = payload.get("sub") if payload else None
-                except:
+                except Exception:
                     pass
             log_csrf_failure(endpoint, client_ip, user=username)
-        except:
+        except Exception:
             pass  # Don't fail if logging fails
         
         raise HTTPException(
@@ -155,6 +148,7 @@ def csrf_protect(func):
         async def my_endpoint(request: Request):
             ...
     """
+    @wraps(func)
     async def wrapper(*args, **kwargs):
         # Find Request object in args/kwargs
         request = None
@@ -166,7 +160,7 @@ def csrf_protect(func):
             request = kwargs.get("request")
         
         if request and request.method in ["POST", "PUT", "PATCH", "DELETE"]:
-            require_csrf_token(request)
+            await require_csrf_token(request)
         
         return await func(*args, **kwargs)
     

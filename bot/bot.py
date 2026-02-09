@@ -256,8 +256,8 @@ class AttendanceBot:
             await query.edit_message_text("❌ Ошибка: некорректные данные.")
             return
 
-        # Validate token
-        if not self.db.is_token_valid(token):
+        # Atomically validate and mark token as used (prevents double-use race condition)
+        if not self.db.mark_token_used_if_valid(token):
             await query.edit_message_text(
                 "❌ Этот QR-код уже использован.\n"
                 "📱 Отсканируйте новый код у терминала."
@@ -319,9 +319,7 @@ class AttendanceBot:
                 full_name=person['fio']
             )
 
-            # Mark token as used
-            self.db.mark_token_used(token)
-
+            # Token already marked as used above (mark_token_used_if_valid)
             # Create new active token for this location
             new_token = self.db.create_token()
 
@@ -588,13 +586,14 @@ class AttendanceBot:
                     continue
 
                 try:
-                    # Calculate time in local timezone for display
-                    checkin_time = datetime.fromisoformat(session['ts'].replace('Z', '+00:00'))
-                    local_time = checkin_time.astimezone(TIMEZONE)
-                    time_str = local_time.strftime('%H:%M')
+                    # Time in DB is stored in UTC; convert to local for display (same as "Отмечено"/"Уход отмечен")
+                    ts_raw = session['ts']
+                    utc_time_str = ts_raw[:19].replace('T', ' ') if isinstance(ts_raw, str) else str(ts_raw)[:19].replace('T', ' ')
+                    local_full = self.utc_to_local(utc_time_str)  # "YYYY-MM-DD HH:MM:SS" in local TZ
+                    time_str = local_full.split()[1][:5] if ' ' in local_full else local_full[:5]  # "HH:MM"
                     
                     # Check if today is a working day (skip reminders on weekends/holidays)
-                    today = local_time.date()
+                    today = datetime.now(TIMEZONE).date()
                     if not is_working_day(today):
                         logger.debug(f"Skipping reminder for user {user_id} - today ({today}) is not a working day")
                         continue
@@ -692,31 +691,31 @@ def main():
         """Отправка еженедельных сводок пользователям"""
         try:
             today = datetime.now(TIMEZONE).date()
-            if today.weekday() == 0:  # Понедельник
-                last_week_start = today - timedelta(days=7)
-                last_week_end = today - timedelta(days=1)
-                
-                # Получаем всех пользователей
-                with bot.db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT DISTINCT tg_user_id FROM people")
-                    user_ids = [row[0] for row in cursor.fetchall()]
-                
-                for user_id in user_ids:
-                    try:
-                        # Получаем статистику за неделю
-                        stats = bot.db.get_employee_detailed_stats(user_id)
-                        if stats and stats.get('total_work_days', 0) > 0:
-                            summary = (
-                                f"📊 Еженедельная сводка ({last_week_start.strftime('%d.%m')} - {last_week_end.strftime('%d.%m')})\n\n"
-                                f"Рабочих дней: {stats.get('total_work_days', 0)}\n"
-                                f"Приходов: {stats.get('total_checkins', 0)}\n"
-                                f"Уходов: {stats.get('total_checkouts', 0)}\n"
-                                f"Среднее время работы: {stats.get('avg_work_time', 0):.1f} ч"
-                            )
-                            await bot.application.bot.send_message(chat_id=user_id, text=summary)
-                    except Exception as e:
-                        logger.error(f"Failed to send weekly summary to {user_id}: {e}")
+            # CronTrigger already ensures Monday, no extra weekday check needed
+            last_week_start = today - timedelta(days=7)
+            last_week_end = today - timedelta(days=1)
+            
+            # Получаем всех пользователей
+            with bot.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT DISTINCT tg_user_id FROM people")
+                user_ids = [row[0] for row in cursor.fetchall()]
+            
+            for user_id in user_ids:
+                try:
+                    # Получаем статистику за неделю (используем tg_user_id -> id mapping)
+                    stats = bot.db.get_employee_stats_by_tg(user_id)
+                    if stats and stats.get('total_work_days', 0) > 0:
+                        summary = (
+                            f"📊 Еженедельная сводка ({last_week_start.strftime('%d.%m')} - {last_week_end.strftime('%d.%m')})\n\n"
+                            f"Рабочих дней: {stats.get('total_work_days', 0)}\n"
+                            f"Приходов: {stats.get('total_checkins', 0)}\n"
+                            f"Уходов: {stats.get('total_checkouts', 0)}\n"
+                            f"Среднее время работы: {stats.get('avg_work_time', 0):.1f} ч"
+                        )
+                        await bot.application.bot.send_message(chat_id=user_id, text=summary)
+                except Exception as e:
+                    logger.error(f"Failed to send weekly summary to {user_id}: {e}")
         except Exception as e:
             logger.error(f"Error in send_weekly_summaries: {e}")
     
@@ -782,7 +781,7 @@ def main():
                 logger.info(f"Attempting to start bot (attempt {retry_count + 1}/{max_retries})...")
                 application.run_polling(
                     allowed_updates=Update.ALL_TYPES,
-                    drop_pending_updates=False,
+                    drop_pending_updates=True,
                     close_loop=False
                 )
                 break  # Success, exit loop
