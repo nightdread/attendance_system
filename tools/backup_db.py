@@ -17,7 +17,41 @@ import json
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+
+def _load_dotenv(env_path: Path) -> None:
+    """Load .env file into os.environ (setdefault so existing env wins)."""
+    if not env_path.is_file():
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("'\"").strip()
+            if key:
+                os.environ.setdefault(key, value)
+
+
+_load_dotenv(project_root / ".env")
 from config.config import DB_PATH
+
+
+def _resolve_db_path(path, root: Path) -> str:
+    """Resolve database path; if not found, try common host paths (e.g. when .env has container path)."""
+    p = Path(path)
+    if p.is_file():
+        return str(p)
+    for candidate in (root / "attendance.db", root / "data" / "attendance.db"):
+        if candidate.is_file():
+            return str(candidate)
+    raise FileNotFoundError(
+        f"Database file not found. Tried: {p}, {root / 'attendance.db'}, {root / 'data' / 'attendance.db'}. "
+        "Create the database or set DB_PATH in .env to the correct path (e.g. ./attendance.db)."
+    )
 
 
 def create_backup(db_path: str, backup_dir: str, compress: bool = True, keep_days: int = 30) -> str:
@@ -249,9 +283,9 @@ def main():
         return
     
     try:
-        # Create backup
+        db_path = _resolve_db_path(args.db_path, project_root)
         backup_file = create_backup(
-            args.db_path,
+            db_path,
             args.backup_dir,
             compress=not args.no_compress,
             keep_days=args.keep_days

@@ -15,7 +15,40 @@ from datetime import datetime
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+
+def _load_dotenv(env_path: Path) -> None:
+    """Load .env file into os.environ (setdefault so existing env wins)."""
+    if not env_path.is_file():
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("'\"").strip()
+            if key:
+                os.environ.setdefault(key, value)
+
+
+_load_dotenv(project_root / ".env")
 from config.config import DB_PATH
+
+
+def _resolve_target_db_path(path, root: Path) -> str:
+    """Resolve target DB path for restore; use host path when config has container path."""
+    p = Path(path)
+    if p.is_file():
+        return str(p)
+    if p.is_absolute() and not p.parent.exists():
+        for candidate in (root / "attendance.db", root / "data" / "attendance.db"):
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            return str(candidate)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return str(p)
 
 
 def restore_backup(backup_file: str, target_db: str, create_backup: bool = True) -> bool:
@@ -166,9 +199,9 @@ def main():
         parser.print_help()
         sys.exit(1)
     
-    # Confirm restore
+    target_db = _resolve_target_db_path(args.target_db, project_root)
     if not args.force:
-        print(f"⚠️  WARNING: This will replace the database at {args.target_db}")
+        print(f"⚠️  WARNING: This will replace the database at {target_db}")
         print(f"   with backup from {args.backup_file}")
         if not args.no_backup:
             print(f"   (Current database will be backed up first)")
@@ -179,13 +212,13 @@ def main():
     
     success = restore_backup(
         args.backup_file,
-        args.target_db,
+        target_db,
         create_backup=not args.no_backup
     )
     
     if success:
         print(f"\n✅ Restore completed successfully!")
-        print(f"   Database: {args.target_db}")
+        print(f"   Database: {target_db}")
     else:
         print(f"\n❌ Restore failed!", file=sys.stderr)
         sys.exit(1)
