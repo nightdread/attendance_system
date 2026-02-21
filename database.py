@@ -13,7 +13,12 @@ from utils.cache import (
     get_cached_system_health, set_cached_system_health,
     cache
 )
-from config.config import CACHE_TTL_USER
+from config.config import CACHE_TTL_USER, CACHE_TTL_ANALYTICS, TIMEZONE_OFFSET_HOURS
+
+# SQLite timezone offset modifier built from config (e.g. "+3 hours" or "-5 hours")
+_hours = abs(TIMEZONE_OFFSET_HOURS)
+_sign = "+" if TIMEZONE_OFFSET_HOURS >= 0 else "-"
+_TZ_SQL_OFFSET = f"{_sign}{_hours} hours"
 
 class Database:
     def __init__(self, db_path: str = "attendance.db"):
@@ -244,7 +249,7 @@ class Database:
             for role_name, role_data in USER_ROLES.items():
                 cursor.execute("SELECT COUNT(*) FROM roles WHERE name = ?", (role_name,))
                 if cursor.fetchone()[0] == 0:
-                    now = datetime.utcnow().isoformat()
+                    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
                     cursor.execute(
                         "INSERT INTO roles (name, display_name, description, permissions, is_system, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                         (role_name, role_data["name"], role_data["description"],
@@ -257,7 +262,7 @@ class Database:
             if not has_users:
                 from auth.jwt_handler import JWTHandler
 
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
                 defaults = [
                     ("admin", "Administrator", "admin"),
                     ("manager", "Manager User", "manager"),
@@ -297,7 +302,7 @@ class Database:
     # People operations
     def create_person(self, tg_user_id: int, fio: str, username: Optional[str] = None) -> int:
         """Create new person record"""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -312,6 +317,14 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM people WHERE tg_user_id = ?", (tg_user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_person_by_id(self, person_id: int) -> Optional[Dict[str, Any]]:
+        """Get person by internal DB id (people.id)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM people WHERE id = ?", (person_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
@@ -336,12 +349,19 @@ class Database:
             suffix += 1
 
         password_plain = secrets.token_urlsafe(8)
-        self.create_web_user(
-            username=candidate,
-            password=password_plain,
-            full_name=fio,
-            role="user"
-        )
+        # Handle race condition: another concurrent request may have claimed the same username
+        while True:
+            try:
+                self.create_web_user(
+                    username=candidate,
+                    password=password_plain,
+                    full_name=fio,
+                    role="user"
+                )
+                break
+            except sqlite3.IntegrityError:
+                candidate = f"{base_username}{suffix}"
+                suffix += 1
 
         return {"username": candidate, "password": password_plain}
 
@@ -367,11 +387,13 @@ class Database:
 
     # Token operations
     def get_active_token(self) -> Optional[Dict[str, Any]]:
-        """Get the active (unused) global token"""
+        """Get the active (unused and not expired) global token"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT * FROM tokens WHERE used = 0 ORDER BY created_at DESC LIMIT 1"
+                "SELECT * FROM tokens WHERE used = 0 "
+                "AND (expires_at IS NULL OR expires_at > datetime('now')) "
+                "ORDER BY created_at DESC LIMIT 1"
             )
             row = cursor.fetchone()
             return dict(row) if row else None
@@ -379,7 +401,7 @@ class Database:
     def create_token(self, token_length: int = 8) -> str:
         """Create new global token"""
         token = secrets.token_urlsafe(token_length)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         expires_at = now + timedelta(hours=24)  # 24 hours expiry
 
         with self.get_connection() as conn:
@@ -430,22 +452,38 @@ class Database:
             return row[0] if row else None
 
     def is_token_valid(self, token: str) -> bool:
-        """Check if token exists and is not used"""
-        # Check cache first
+        """Check if token exists, is not used, and not expired"""
+        # Check cache first (respect expiry if stored)
         cached_result = get_cached_token(token)
         if cached_result is not None:
-            return cached_result.get("valid", False)
+            if not cached_result.get("valid", False):
+                return False
+            expires_at = cached_result.get("expires_at")
+            if expires_at:
+                try:
+                    # Compare as strings (ISO format); SQLite datetime('now') is UTC
+                    from datetime import datetime as dt
+                    exp = dt.fromisoformat(expires_at.replace("Z", "+00:00")) if isinstance(expires_at, str) else expires_at
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if exp <= datetime.now(timezone.utc):
+                        return False
+                except Exception:
+                    pass
+            return True
 
-        # Check database
+        # Check database (used=0 and not expired)
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT used FROM tokens WHERE token = ? AND used = 0", (token,))
+            cursor.execute(
+                "SELECT used, expires_at FROM tokens WHERE token = ? AND used = 0 "
+                "AND (expires_at IS NULL OR expires_at > datetime('now'))",
+                (token,)
+            )
             row = cursor.fetchone()
             is_valid = row is not None
-
-            # Cache the result
-            set_cached_token(token, {"valid": is_valid})
-
+            expires_at = row["expires_at"] if row else None
+            set_cached_token(token, {"valid": is_valid, "expires_at": expires_at})
             return is_valid
 
     # Event operations
@@ -522,23 +560,46 @@ class Database:
             ''', (hours,))
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_users_without_checkin_between(self, start_ts: str, end_ts: str) -> List[Dict[str, Any]]:
+        """Users (people) who have no 'in' event between start_ts and end_ts (UTC ISO strings).
+        Only returns people who have at least one event ever (i.e. have used the system before)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT p.tg_user_id, p.fio
+                FROM people p
+                WHERE EXISTS (
+                    SELECT 1 FROM events e2 WHERE e2.user_id = p.tg_user_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM events e
+                    WHERE e.user_id = p.tg_user_id AND e.action = 'in'
+                    AND e.ts >= ? AND e.ts <= ?
+                )
+                ORDER BY p.fio
+            ''', (start_ts, end_ts))
+            return [dict(row) for row in cursor.fetchall()]
+
     def get_work_time(self, user_id: int, date: str) -> float:
-        """Calculate work time for user on specific date (in hours)"""
+        """Calculate work time for user on specific date (in hours). Pairs in/out by location."""
         date_start = f"{date}T00:00:00"
         date_end = f"{date}T23:59:59"
 
         events = self.get_events_by_period(user_id, date_start, date_end)
 
         total_seconds = 0
-        checkin_time = None
+        checkin_by_location: Dict[str, datetime] = {}
 
         for event in events:
+            loc = event.get('location', 'global')
             if event['action'] == 'in':
-                checkin_time = datetime.fromisoformat(event['ts'].replace('Z', '+00:00'))
-            elif event['action'] == 'out' and checkin_time:
+                checkin_by_location[loc] = datetime.fromisoformat(
+                    event['ts'].replace('Z', '+00:00')
+                )
+            elif event['action'] == 'out' and loc in checkin_by_location:
                 checkout_time = datetime.fromisoformat(event['ts'].replace('Z', '+00:00'))
-                total_seconds += (checkout_time - checkin_time).total_seconds()
-                checkin_time = None
+                total_seconds += (checkout_time - checkin_by_location[loc]).total_seconds()
+                del checkin_by_location[loc]
 
         return total_seconds / 3600  # Convert to hours
 
@@ -557,7 +618,7 @@ class Database:
 
             if user and JWTHandler.verify_password(password, user['password_hash']):
                 # Update last login
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
                 cursor.execute(
                     "UPDATE web_users SET last_login = ? WHERE id = ?",
                     (now, user['id'])
@@ -579,7 +640,7 @@ class Database:
         permissions_json = json.dumps(role_permissions)
 
         password_hash = JWTHandler.get_password_hash(password)
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -656,7 +717,7 @@ class Database:
 
     def grant_user_permission(self, user_id: int, permission: str, granted_by: int, expires_at: str = None) -> bool:
         """Grant custom permission to user"""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -698,7 +759,7 @@ class Database:
     def create_role(self, name: str, display_name: str, description: str, permissions: List[str]) -> int:
         """Create new custom role"""
         import json
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -1071,8 +1132,11 @@ class Database:
             ''')
             recent_events = cursor.fetchone()['recent_events']
 
-            # Token stats
-            cursor.execute("SELECT COUNT(*) as active_tokens FROM tokens WHERE used = 0")
+            # Token stats (only unused and not expired)
+            cursor.execute(
+                "SELECT COUNT(*) as active_tokens FROM tokens WHERE used = 0 "
+                "AND (expires_at IS NULL OR expires_at > datetime('now'))"
+            )
             active_tokens = cursor.fetchone()['active_tokens']
 
             data = {
@@ -1087,7 +1151,7 @@ class Database:
                 'tokens': {
                     'active': active_tokens
                 },
-                'generated_at': datetime.utcnow().isoformat()
+                'generated_at': datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
             }
 
             # Cache the result
@@ -1098,9 +1162,8 @@ class Database:
     # Analytics methods
     def get_analytics_summary(self) -> Dict[str, Any]:
         """Get overall analytics summary"""
-        # Check cache first
         cache_key = "analytics_summary"
-        cached_data = get_cached_analytics_weekly()
+        cached_data = cache.get(cache_key)
         if cached_data:
             return cached_data
 
@@ -1116,7 +1179,7 @@ class Database:
             present_users = len(self.get_currently_present())
 
             # Today's visits (optimized: use date range instead of DATE() function)
-            today = datetime.utcnow().date().isoformat()
+            today = datetime.now(timezone.utc).replace(tzinfo=None).date().isoformat()
             today_start = f"{today}T00:00:00"
             today_end = f"{today}T23:59:59"
             cursor.execute("""
@@ -1126,7 +1189,7 @@ class Database:
             today_visits = cursor.fetchone()[0]
 
             # Average work time (simplified calculation)
-            thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
+            thirty_days_ago = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)).isoformat()
             cursor.execute("""
                 SELECT AVG(work_hours) FROM (
                     SELECT
@@ -1150,8 +1213,7 @@ class Database:
                 'avg_work_time': avg_work_time
             }
 
-            # Cache the result
-            set_cached_analytics_weekly(result)
+            cache.set(cache_key, result, CACHE_TTL_ANALYTICS)
 
             return result
 
@@ -1160,7 +1222,7 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            start_date = (datetime.utcnow() - timedelta(days=days)).date()
+            start_date = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)).date()
             # Optimized: use date range instead of DATE() in WHERE clause
             start_datetime = f"{start_date.isoformat()}T00:00:00"
 
@@ -1205,6 +1267,7 @@ class Database:
                     e.user_id,
                     e.action,
                     e.ts,
+                    e.location,
                     p.fio,
                     p.username,
                     p.tg_user_id
@@ -1222,6 +1285,7 @@ class Database:
                 user_id = row["user_id"]
                 action = row["action"]
                 ts = row["ts"]
+                loc = row["location"] if row["location"] is not None else "global"
 
                 if user_id not in employees:
                     employees[user_id] = {
@@ -1233,32 +1297,34 @@ class Database:
                         "checkin_time": None,
                         "checkout_time": None,
                         "intervals": [],
-                        "_open_start": None,  # служебное поле для сборки интервалов
+                        "has_remote": False,
+                        "_open_by_loc": {},  # location -> start_ts
                     }
 
                 emp = employees[user_id]
 
-                # Подсчет приходов/уходов и запоминание первого/последнего времени
                 if action == "in":
                     emp["checkins_count"] += 1
                     if not emp["checkin_time"]:
                         emp["checkin_time"] = ts
-                    emp["_open_start"] = ts
+                    emp["_open_by_loc"][loc] = ts
+                    if loc == "remote":
+                        emp["has_remote"] = True
                 elif action == "out":
                     emp["checkouts_count"] += 1
                     emp["checkout_time"] = ts
-                    if emp.get("_open_start"):
+                    if loc in emp["_open_by_loc"]:
                         emp["intervals"].append(
-                            {"start": emp["_open_start"], "end": ts}
+                            {"start": emp["_open_by_loc"][loc], "end": ts, "location": loc}
                         )
-                        emp["_open_start"] = None
+                        del emp["_open_by_loc"][loc]
 
             # Завершаем сборку: форматируем времена и приводим интервалы к HH:MM
             result: List[Dict[str, Any]] = []
             for emp in employees.values():
-                # Если смена открыта и не было выхода — добавляем незавершённый интервал
-                if emp.get("_open_start"):
-                    emp["intervals"].append({"start": emp["_open_start"], "end": None})
+                # Незавершённые интервалы по локациям
+                for loc, start_ts in emp.get("_open_by_loc", {}).items():
+                    emp["intervals"].append({"start": start_ts, "end": None, "location": loc})
 
                 # Форматирование времени (конвертация из UTC в MSK)
                 msk_offset = timedelta(hours=3)  # MSK = UTC+3
@@ -1283,13 +1349,19 @@ class Database:
                 formatted_intervals = []
                 for interval in emp["intervals"]:
                     start_fmt = format_time_utc_to_msk(interval["start"])
-                    end_fmt = format_time_utc_to_msk(interval["end"]) if interval["end"] else None
-                    formatted_intervals.append({"start": start_fmt, "end": end_fmt})
+                    end_fmt = format_time_utc_to_msk(interval["end"]) if interval.get("end") else None
+                    loc = interval.get("location", "global")
+                    formatted_intervals.append({
+                        "start": start_fmt,
+                        "end": end_fmt,
+                        "location": loc,
+                        "is_remote": loc == "remote",
+                    })
 
                 emp["intervals"] = formatted_intervals
 
-                # Удаляем служебное поле
-                emp.pop("_open_start", None)
+                # Удаляем служебные поля
+                emp.pop("_open_by_loc", None)
                 result.append(emp)
 
             # Сортируем по первому приходу (checkin_time) для стабильного порядка
@@ -1301,7 +1373,7 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
+            thirty_days_ago = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)).isoformat()
 
             # Используем Python для точного расчета времени работы с учетом всех интервалов
             cursor.execute("""
@@ -1310,43 +1382,40 @@ class Database:
                     p.fio,
                     p.tg_user_id,
                     e.ts,
-                    e.action
+                    e.action,
+                    COALESCE(e.location, 'global') as location
                 FROM events e
                 JOIN people p ON e.user_id = p.tg_user_id
                 WHERE e.ts >= ? AND e.action IN ('in', 'out')
                 ORDER BY p.tg_user_id, e.ts
             """, (thirty_days_ago,))
 
-            # Группируем события по пользователям и дням, считаем время работы
-            user_stats = {}
-            current_user = None
-            current_date = None
-            checkin_time = None
+            # Группируем события по пользователям и дням, считаем время работы (пары in/out по location)
             daily_hours = {}
             
             for row in cursor.fetchall():
-                user_id = row[2]  # tg_user_id (правильный индекс)
-                fio = row[1]      # fio (правильный индекс)
-                ts_str = row[3]   # ts
-                action = row[4]   # action
+                user_id = row[2]  # tg_user_id
+                fio = row[1]
+                ts_str = row[3]
+                action = row[4]
+                loc = row[5] if len(row) > 5 else 'global'
                 
-                # Парсим дату
                 event_time = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
                 event_date = event_time.date()
                 
                 key = (user_id, event_date)
                 
                 if key not in daily_hours:
-                    daily_hours[key] = {'fio': fio, 'total_seconds': 0, 'checkin_time': None}
+                    daily_hours[key] = {'fio': fio, 'total_seconds': 0, 'checkin_by_loc': {}}
                 
                 if action == 'in':
-                    daily_hours[key]['checkin_time'] = event_time
-                elif action == 'out' and daily_hours[key]['checkin_time']:
+                    daily_hours[key]['checkin_by_loc'][loc] = event_time
+                elif action == 'out' and loc in daily_hours[key]['checkin_by_loc']:
                     checkout_time = event_time
-                    work_seconds = (checkout_time - daily_hours[key]['checkin_time']).total_seconds()
-                    if 0 < work_seconds < 86400:  # Валидация: от 0 до 24 часов
+                    work_seconds = (checkout_time - daily_hours[key]['checkin_by_loc'][loc]).total_seconds()
+                    if 0 < work_seconds < 86400:
                         daily_hours[key]['total_seconds'] += work_seconds
-                    daily_hours[key]['checkin_time'] = None
+                    del daily_hours[key]['checkin_by_loc'][loc]
             
             # Агрегируем по пользователям
             user_totals = {}
@@ -1530,13 +1599,13 @@ class Database:
             result['monthly_stats'] = [dict(row) for row in cursor.fetchall()]
 
             # Daily work time statistics (last 10 days)
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT
                     date(ts) as work_date,
-                    strftime('%H:%M', datetime(MIN(CASE WHEN action = 'in' THEN ts END), '+3 hours')) as checkin_time,
-                    strftime('%H:%M', datetime(MAX(CASE WHEN action = 'out' THEN ts END), '+3 hours')) as checkout_time,
-                    ROUND((strftime('%s', datetime(MAX(CASE WHEN action = 'out' THEN ts END), '+3 hours')) -
-                           strftime('%s', datetime(MIN(CASE WHEN action = 'in' THEN ts END), '+3 hours'))) / 3600.0, 2) as work_hours
+                    strftime('%H:%M', datetime(MIN(CASE WHEN action = 'in' THEN ts END), '{_TZ_SQL_OFFSET}')) as checkin_time,
+                    strftime('%H:%M', datetime(MAX(CASE WHEN action = 'out' THEN ts END), '{_TZ_SQL_OFFSET}')) as checkout_time,
+                    ROUND((strftime('%s', datetime(MAX(CASE WHEN action = 'out' THEN ts END), '{_TZ_SQL_OFFSET}')) -
+                           strftime('%s', datetime(MIN(CASE WHEN action = 'in' THEN ts END), '{_TZ_SQL_OFFSET}'))) / 3600.0, 2) as work_hours
                 FROM events
                 WHERE user_id = ? AND ts >= date('now', '-30 days')
                 GROUP BY date(ts)
@@ -1567,6 +1636,50 @@ class Database:
 
             # Cache the result
             cache.set(cache_key, result, CACHE_TTL_USER)
+
+            return result
+
+    def get_employee_period_summary(self, tg_user_id: int, start_date: str, end_date: str) -> Dict[str, Any]:
+        """Get summary stats for an employee over a specific date range.
+
+        Returns total_work_days, total_checkins, total_checkouts, avg_work_time (hours).
+        """
+        start_dt = f"{start_date}T00:00:00"
+        end_dt = f"{end_date}T23:59:59"
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT
+                    COUNT(DISTINCT date(ts)) as total_work_days,
+                    COUNT(CASE WHEN action = 'in' THEN 1 END) as total_checkins,
+                    COUNT(CASE WHEN action = 'out' THEN 1 END) as total_checkouts
+                FROM events
+                WHERE user_id = ? AND ts >= ? AND ts <= ?
+            """, (tg_user_id, start_dt, end_dt))
+
+            row = cursor.fetchone()
+            result = dict(row) if row else {
+                'total_work_days': 0, 'total_checkins': 0, 'total_checkouts': 0
+            }
+
+            cursor.execute("""
+                SELECT ROUND(AVG(work_hours), 2) as avg_work_time
+                FROM (
+                    SELECT
+                        date(ts) as work_date,
+                        (strftime('%s', MAX(CASE WHEN action = 'out' THEN ts END)) -
+                         strftime('%s', MIN(CASE WHEN action = 'in' THEN ts END))) / 3600.0 as work_hours
+                    FROM events
+                    WHERE user_id = ? AND ts >= ? AND ts <= ?
+                    GROUP BY date(ts)
+                    HAVING work_hours > 0 AND work_hours < 24
+                )
+            """, (tg_user_id, start_dt, end_dt))
+
+            avg_row = cursor.fetchone()
+            result['avg_work_time'] = avg_row[0] if avg_row and avg_row[0] else 0.0
 
             return result
 
@@ -1739,18 +1852,18 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT 
                     p.fio,
                     date(e.ts) as work_date,
-                    strftime('%H:%M', datetime(e.ts, '+3 hours')) as arrival_time,
+                    strftime('%H:%M', datetime(e.ts, '{_TZ_SQL_OFFSET}')) as arrival_time,
                     COUNT(*) as late_count
                 FROM events e
                 JOIN people p ON e.user_id = p.tg_user_id
                 WHERE e.action = 'in'
                 AND e.ts >= ? AND e.ts <= ?
-                AND CAST(strftime('%H', datetime(e.ts, '+3 hours')) AS INTEGER) >= ?
-                GROUP BY p.fio, date(e.ts), strftime('%H:%M', datetime(e.ts, '+3 hours'))
+                AND CAST(strftime('%H', datetime(e.ts, '{_TZ_SQL_OFFSET}')) AS INTEGER) >= ?
+                GROUP BY p.fio, date(e.ts), strftime('%H:%M', datetime(e.ts, '{_TZ_SQL_OFFSET}'))
                 ORDER BY work_date DESC, arrival_time DESC
             """, (f"{start_date}T00:00:00", f"{end_date}T23:59:59", late_threshold_hours))
             

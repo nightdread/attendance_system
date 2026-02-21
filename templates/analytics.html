@@ -429,6 +429,10 @@
             justify-content: space-between;
             align-items: center;
         }
+        .employee-item.employee-remote {
+            background: rgba(168, 85, 247, 0.08);
+            border-left: 3px solid #a855f7;
+        }
         .employee-info {
             flex: 1;
         }
@@ -1370,27 +1374,29 @@
                     data.employees.forEach(emp => {
                         const intervals = Array.isArray(emp.intervals) ? emp.intervals : [];
                         const hasIntervals = intervals.length > 0;
+                        const hasRemote = emp.has_remote === true;
 
                         let intervalsHtml = '';
                         if (hasIntervals) {
                             intervalsHtml = intervals.map((intv, idx) => {
                                 const label = intv.end ? `${intv.start} – ${intv.end}` : `${intv.start} – …`;
-                                return `<span class="time-badge">${label}</span>`;
+                                const remoteTag = intv.is_remote ? ' 🏠' : '';
+                                return `<span class="time-badge">${escapeHtml(label)}${remoteTag}</span>`;
                             }).join(' ');
                         } else {
                             intervalsHtml = `
-                                ${emp.checkin_time ? `<span class="time-badge time-checkin">Приход: ${emp.checkin_time}</span>` : ''}
-                                ${emp.checkout_time ? `<span class="time-badge time-checkout">Уход: ${emp.checkout_time}</span>` : ''}
+                                ${emp.checkin_time ? `<span class="time-badge time-checkin">Приход: ${escapeHtml(emp.checkin_time)}</span>` : ''}
+                                ${emp.checkout_time ? `<span class="time-badge time-checkout">Уход: ${escapeHtml(emp.checkout_time)}</span>` : ''}
                                 ${!emp.checkin_time && !emp.checkout_time ? '<span style="color: var(--muted);">Нет данных</span>' : ''}
                             `;
                         }
 
                         html += `
-                            <li class="employee-item">
+                            <li class="employee-item${hasRemote ? ' employee-remote' : ''}">
                                 <div class="employee-info">
-                                    <div class="employee-name">${emp.fio || 'Не указано'}</div>
+                                    <div class="employee-name">${escapeHtml(emp.fio || 'Не указано')}${hasRemote ? ' <span title="Удалённая работа">🏠</span>' : ''}</div>
                                     <div class="employee-meta">
-                                        ${emp.username ? `@${emp.username}` : 'Без username'}
+                                        ${emp.username ? `@${escapeHtml(emp.username)}` : 'Без username'}
                                         ${emp.checkins_count > 1 ? ` • ${emp.checkins_count} приходов` : ''}
                                     </div>
                                 </div>

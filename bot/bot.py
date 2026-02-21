@@ -36,8 +36,8 @@ class AttendanceBot:
         self.main_keyboard = ReplyKeyboardMarkup(
             [
                 [KeyboardButton("📋 Мои последние события"), KeyboardButton("🏢 Кто в офисе")],
-                [KeyboardButton("🔑 Восстановить пароль"), KeyboardButton("ℹ️ Помощь")],
-                [KeyboardButton("🔄 Обновить меню")]
+                [KeyboardButton("🏠 Удалённая работа"), KeyboardButton("🔑 Восстановить пароль")],
+                [KeyboardButton("ℹ️ Помощь"), KeyboardButton("🔄 Обновить меню")]
             ],
             resize_keyboard=True,
             one_time_keyboard=False
@@ -162,6 +162,9 @@ class AttendanceBot:
                 reply_markup=self.main_keyboard
             )
             return
+        elif text == "🏠 Удалённая работа":
+            await self.handle_remote_work_menu(update, context)
+            return
 
         # Check if user is in registration process
         if 'pending_registration' in context.user_data:
@@ -228,7 +231,7 @@ class AttendanceBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        location_display = location.replace('_', ' ').title()
+        location_display = "Офис" if location == "global" else (location.replace("_", " ").title())
 
         await update.message.reply_text(
             f"🏢 Локация: {location_display}\n"
@@ -248,6 +251,14 @@ class AttendanceBot:
         # Handle reminder checkout (no token needed)
         if data == "reminder_checkout":
             await self.handle_reminder_checkout(update, context, user)
+            return
+
+        # Handle remote work (no token needed)
+        if data == "remote_start":
+            await self.handle_remote_start(update, context, user)
+            return
+        if data == "remote_end":
+            await self.handle_remote_end(update, context, user)
             return
 
         try:
@@ -324,7 +335,7 @@ class AttendanceBot:
             new_token = self.db.create_token()
 
             # Send confirmation
-            location_display = location.replace('_', ' ').title()
+            location_display = "Офис" if location == "global" else (location.replace("_", " ").title())
 
             # Get timestamp safely
             try:
@@ -379,7 +390,8 @@ class AttendanceBot:
         for event in events:
             utc_time_str = event['ts'][:19].replace('T', ' ')
             time_str = self.utc_to_local(utc_time_str)
-            location_display = event['location'].replace('_', ' ').title()
+            loc = event.get('location', 'global')
+            location_display = "Удалёнка" if loc == "remote" else ("Офис" if loc == "global" else loc.replace("_", " ").title())
             action_text = "Пришёл" if event['action'] == 'in' else "Ушёл"
             emoji = "✅" if event['action'] == 'in' else "🚪"
 
@@ -389,6 +401,112 @@ class AttendanceBot:
             text,
             reply_markup=self.main_keyboard
         )
+
+    async def handle_remote_work_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show remote work start/end buttons based on user state"""
+        user = update.effective_user
+        person = self.db.get_person_by_tg_id(user.id)
+
+        if not person:
+            await update.message.reply_text(
+                "❌ Вы не зарегистрированы в системе.\n"
+                "📱 Отсканируйте QR-код у терминала для регистрации.",
+                reply_markup=self.main_keyboard
+            )
+            return
+
+        last_events = self.db.get_user_events(user.id, limit=1)
+        last_event = last_events[0] if last_events else None
+
+        # Определяем состояние: в удалёнке (in+remote) или нет
+        in_remote = (
+            last_event
+            and last_event["action"] == "in"
+            and last_event.get("location") == "remote"
+        )
+
+        if in_remote:
+            keyboard = [[InlineKeyboardButton("🛑 Завершить удалённую сессию", callback_data="remote_end")]]
+        else:
+            # Можно начать, если последнее событие — уход (out) или нет событий
+            if last_event and last_event["action"] == "in":
+                await update.message.reply_text(
+                    "⚠️ Вы сейчас в офисе. Завершите офисную сессию у терминала, "
+                    "затем можете начать удалённую работу.",
+                    reply_markup=self.main_keyboard
+                )
+                return
+            keyboard = [[InlineKeyboardButton("▶️ Начать удалённую сессию", callback_data="remote_start")]]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "🏠 Удалённая работа\n\nВыберите действие:",
+            reply_markup=reply_markup
+        )
+
+    async def handle_remote_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+        """Start remote work session"""
+        person = self.db.get_person_by_tg_id(user.id)
+        if not person:
+            await update.callback_query.edit_message_text("❌ Пользователь не найден.")
+            return
+
+        last_events = self.db.get_user_events(user.id, limit=1)
+        if last_events and last_events[0]["action"] == "in":
+            await update.callback_query.edit_message_text(
+                "⚠️ Сначала завершите текущую сессию (офис или удалёнка)."
+            )
+            return
+
+        try:
+            self.db.create_event(
+                user_id=user.id,
+                location="remote",
+                action="in",
+                username=user.username,
+                full_name=person["fio"],
+            )
+            user_events = self.db.get_user_events(user.id, 1)
+            ts = user_events[0]["ts"][:19].replace("T", " ") if user_events else ""
+            time_str = self.utc_to_local(ts) if ts else ""
+            await update.callback_query.edit_message_text(
+                f"✅ Удалённая сессия начата\n👤 {person['fio']}\n🕐 {time_str}"
+            )
+        except Exception as e:
+            logger.error(f"Error starting remote session: {e}")
+            await update.callback_query.edit_message_text("❌ Ошибка при сохранении.")
+
+    async def handle_remote_end(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+        """End remote work session"""
+        person = self.db.get_person_by_tg_id(user.id)
+        if not person:
+            await update.callback_query.edit_message_text("❌ Пользователь не найден.")
+            return
+
+        last_events = self.db.get_user_events(user.id, limit=1)
+        if not last_events or last_events[0]["action"] != "in" or last_events[0].get("location") != "remote":
+            await update.callback_query.edit_message_text(
+                "⚠️ У вас нет активной удалённой сессии."
+            )
+            return
+
+        try:
+            self.db.create_event(
+                user_id=user.id,
+                location="remote",
+                action="out",
+                username=user.username,
+                full_name=person["fio"],
+            )
+            user_events = self.db.get_user_events(user.id, 1)
+            ts = user_events[0]["ts"][:19].replace("T", " ") if user_events else ""
+            time_str = self.utc_to_local(ts) if ts else ""
+            await update.callback_query.edit_message_text(
+                f"✅ Удалённая сессия завершена\n👤 {person['fio']}\n🕐 {time_str}"
+            )
+        except Exception as e:
+            logger.error(f"Error ending remote session: {e}")
+            await update.callback_query.edit_message_text("❌ Ошибка при сохранении.")
 
     async def who_here_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show who is currently present (admin only)"""
@@ -404,7 +522,8 @@ class AttendanceBot:
         for user in present_users:
             utc_time_str = user['ts'][:19].replace('T', ' ')
             time_str = self.utc_to_local(utc_time_str)
-            location_display = user['location'].replace('_', ' ').title()
+            loc = user.get('location', 'global')
+            location_display = "Удалёнка" if loc == "remote" else ("Офис" if loc == "global" else loc.replace("_", " ").title())
             text += f"👤 {user['fio']} - {location_display} (с {time_str})\n"
 
         await update.message.reply_text(
@@ -456,21 +575,11 @@ class AttendanceBot:
             )
             return
 
-        # Generate new password
+        # Generate new password and update via the proper database method
         import secrets
-        from auth.jwt_handler import JWTHandler
-        
-        new_password = secrets.token_urlsafe(10)
-        password_hash = JWTHandler.get_password_hash(new_password)
 
-        # Update password in database
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE web_users SET password_hash = ? WHERE username = ?",
-                (password_hash, base_username)
-            )
-            conn.commit()
+        new_password = secrets.token_urlsafe(10)
+        self.db.update_web_user(user_id=web_user["id"], password=new_password)
 
         await update.message.reply_text(
             "✅ Пароль успешно восстановлен!\n\n"
@@ -485,8 +594,11 @@ class AttendanceBot:
         """Show help information"""
         help_text = (
             "📖 Помощь по использованию бота:\n\n"
-            "🔹 **Отметка прихода/ухода:**\n"
+            "🔹 **Отметка прихода/ухода (офис):**\n"
             "   Отсканируйте QR-код у терминала на входе\n\n"
+            "🔹 **Удалённая работа:**\n"
+            "   🏠 Удалённая работа — начать или завершить удалённую сессию\n"
+            "   (без сканирования QR-кода)\n\n"
             "🔹 **Команды:**\n"
             "   /start - Начать работу с ботом\n"
             "   /my_last - Показать последние события\n"
@@ -495,6 +607,7 @@ class AttendanceBot:
             "🔹 **Кнопки меню:**\n"
             "   📋 Мои последние события - История ваших отметок\n"
             "   🏢 Кто в офисе - Список присутствующих\n"
+            "   🏠 Удалённая работа - Начать/завершить удалённую сессию\n"
             "   🔑 Восстановить пароль - Получить новый пароль для веб-портала\n"
             "   ℹ️ Помощь - Эта справка\n"
             "   🔄 Обновить меню - Обновить кнопки меню\n\n"
@@ -527,11 +640,14 @@ class AttendanceBot:
                 del self.reminder_sent[user.id]
             return
 
+        # Use the same location as the open check-in (could be "remote" or "global")
+        open_location = last_events[0].get("location", "global")
+
         # Create checkout event
         try:
             self.db.create_event(
                 user_id=user.id,
-                location="global",
+                location=open_location,
                 action="out",
                 username=user.username,
                 full_name=person['fio']
@@ -630,11 +746,51 @@ class AttendanceBot:
         except Exception as e:
             logger.error(f"Error in check_and_send_reminders: {e}")
 
+    async def check_and_send_absence_reminders(self):
+        """В 11:00 в рабочие дни: напоминание тем, кто не отметил приход сегодня."""
+        if not self.application:
+            return
+        try:
+            try:
+                from utils.production_calendar import is_working_day
+            except ImportError:
+                is_working_day = lambda date: True
+            from datetime import time as dt_time
+
+            today = datetime.now(TIMEZONE).date()
+            if not is_working_day(today):
+                logger.debug(f"Skipping absence reminders - today ({today}) is not a working day")
+                return
+
+            start_local = datetime.combine(today, dt_time(0, 0, 0), tzinfo=TIMEZONE)
+            end_local = datetime.combine(today, dt_time(23, 59, 59), tzinfo=TIMEZONE)
+            start_utc = start_local.astimezone(timezone.utc).isoformat()
+            end_utc = end_local.astimezone(timezone.utc).isoformat()
+
+            users_without_checkin = self.db.get_users_without_checkin_between(start_utc, end_utc)
+            for row in users_without_checkin:
+                user_id = row["tg_user_id"]
+                fio = row.get("fio", "")
+                try:
+                    await self.application.bot.send_message(
+                        chat_id=user_id,
+                        text=(
+                            "⏰ Напоминание\n\n"
+                            "Вы не отметили приход сегодня.\n"
+                            "Вы на работе? Отсканируйте QR-код у терминала и отметьтесь."
+                        ),
+                    )
+                    logger.info(f"Sent absence reminder to user {user_id} ({fio})")
+                except Exception as e:
+                    logger.error(f"Error sending absence reminder to user {user_id}: {e}")
+        except Exception as e:
+            logger.error(f"Error in check_and_send_absence_reminders: {e}")
+
     async def cleanup_old_reminders(self):
         """Clean up reminder tracking for closed sessions"""
         try:
             open_sessions = self.db.get_currently_present()
-            open_user_ids = {session['tg_user_id'] for session in open_sessions}
+            open_user_ids = {session['user_id'] for session in open_sessions}
             
             # Remove tracking for users who closed their session
             closed_users = [uid for uid in self.reminder_sent.keys() if uid not in open_user_ids]
@@ -685,6 +841,15 @@ def main():
         id='cleanup_reminders',
         replace_existing=True
     )
+
+    from apscheduler.triggers.cron import CronTrigger
+    # Напоминание об отсутствии прихода: 11:00 в рабочие дни (пн–пт + производственный календарь)
+    scheduler.add_job(
+        bot.check_and_send_absence_reminders,
+        CronTrigger(day_of_week='mon-fri', hour=11, minute=0, timezone=TIMEZONE),
+        id='absence_reminders',
+        replace_existing=True
+    )
     
     # Еженедельные сводки (каждый понедельник в 9:00)
     async def send_weekly_summaries():
@@ -703,8 +868,11 @@ def main():
             
             for user_id in user_ids:
                 try:
-                    # Получаем статистику за неделю (используем tg_user_id -> id mapping)
-                    stats = bot.db.get_employee_stats_by_tg(user_id)
+                    stats = bot.db.get_employee_period_summary(
+                        tg_user_id=user_id,
+                        start_date=last_week_start.isoformat(),
+                        end_date=last_week_end.isoformat(),
+                    )
                     if stats and stats.get('total_work_days', 0) > 0:
                         summary = (
                             f"📊 Еженедельная сводка ({last_week_start.strftime('%d.%m')} - {last_week_end.strftime('%d.%m')})\n\n"
@@ -753,7 +921,6 @@ def main():
         except Exception as e:
             logger.error(f"Error in send_month_end_reminder: {e}")
     
-    from apscheduler.triggers.cron import CronTrigger
     scheduler.add_job(
         send_weekly_summaries,
         CronTrigger(day_of_week='mon', hour=9, minute=0, timezone=TIMEZONE),

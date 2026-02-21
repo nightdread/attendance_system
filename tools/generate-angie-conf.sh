@@ -20,7 +20,7 @@ echo "🔧 Генерация angie.conf для домена: $DOMAIN"
 echo "📋 Используем шаблон С Docker модулем"
 
 # Заменяем только DOMAIN в шаблоне
-sed "s/\${DOMAIN}/$DOMAIN/g" angie.conf.template > angie.conf
+sed "s/\${DOMAIN}/$DOMAIN/g" docs/angie.conf.template > angie.conf
 
 echo "✅ angie.conf сгенерирован успешно!"
 echo "📄 Проверьте файл: cat angie.conf"

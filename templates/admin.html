@@ -109,6 +109,14 @@
             font-size: 0.85rem;
             margin-left: 0.35rem;
         }
+        .row-remote {
+            background: rgba(168, 85, 247, 0.08);
+            border-left: 3px solid #a855f7;
+        }
+        .remote-badge {
+            margin-left: 0.35rem;
+            font-size: 0.9rem;
+        }
         .copy-btn {
             background: transparent;
             border: 1px solid var(--accent);
@@ -226,7 +234,7 @@
         {% endif %}
         
         <div class="section">
-            <h2>Сейчас в офисе</h2>
+            <h2>Сейчас на работе</h2>
             {% if present_users %}
             <div class="table-wrapper">
             <table>
@@ -240,10 +248,15 @@
                 </thead>
                 <tbody>
                     {% for user in present_users %}
-                    <tr>
-                        <td>{{ user.fio }}</td>
-                        <td>{{ user.location.replace('_', ' ').title() }}</td>
-                        <td>{{ user.ts[:19].replace('T', ' ') }}</td>
+                    <tr class="{% if user.location == 'remote' %}row-remote{% endif %}">
+                        <td>
+                            {{ user.fio }}
+                            {% if user.location == 'remote' %}
+                            <span class="remote-badge" title="Удалённая работа">🏠</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ 'Удалёнка' if user.location == 'remote' else ('Офис' if user.location == 'global' else user.location.replace('_', ' ').title()) }}</td>
+                        <td>{{ user.ts }}</td>
                         <td>
                             <a href="/admin/user/{{ user.user_id }}" class="action-btn">История</a>
                         </td>
@@ -254,7 +267,7 @@
             </div>
             {% else %}
             <div class="no-data">
-                В данный момент в офисе никого нет
+                В данный момент никого нет (офис и удалёнка)
             </div>
             {% endif %}
         </div>

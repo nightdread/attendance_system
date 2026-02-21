@@ -124,30 +124,25 @@ CACHE_TTL_USER = int(os.getenv("CACHE_TTL_USER", "1800"))  # 30 minutes for user
 
 # Timezone settings
 def get_timezone():
-    """Get timezone from environment or detect system timezone"""
+    """Get timezone from environment or detect system timezone. Default: Europe/Moscow."""
     tz_name = os.getenv("TIMEZONE")
     if tz_name:
         try:
             return ZoneInfo(tz_name)
         except Exception:
             pass
-    
-    # Try to detect system timezone
+
+    # Try to detect system timezone only when it looks like Moscow (e.g. local dev)
     try:
         import time
-        if hasattr(time, 'timezone'):
-            # Try to get system timezone offset
-            tz_offset = -time.timezone // 3600  # Offset in hours
-            # Common timezones mapping
+        if hasattr(time, "timezone"):
+            tz_offset = -time.timezone // 3600
             if tz_offset == 3:
                 return ZoneInfo("Europe/Moscow")
-            elif tz_offset == 0:
-                return ZoneInfo("UTC")
-            # Default to UTC if can't determine
     except Exception:
         pass
-    
-    # Default to Moscow timezone (GMT+3)
+
+    # Default to Moscow (GMT+3). In Docker/system UTC this avoids showing UTC in UI.
     return ZoneInfo("Europe/Moscow")
 
 TIMEZONE = get_timezone()

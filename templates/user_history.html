@@ -100,6 +100,14 @@
             color: var(--danger);
             font-weight: bold;
         }
+        .row-remote {
+            background: rgba(168, 85, 247, 0.08);
+            border-left: 3px solid #a855f7;
+        }
+        .remote-badge {
+            margin-left: 0.35rem;
+            font-size: 0.85rem;
+        }
         .no-data {
             text-align: center;
             color: var(--muted);
@@ -195,9 +203,14 @@
                 </thead>
                 <tbody>
                     {% for event in events %}
-                    <tr>
+                    <tr class="{% if event.location == 'remote' %}row-remote{% endif %}">
                         <td>{{ event.ts[:19].replace('T', ' ') }}</td>
-                        <td>{{ event.location.replace('_', ' ').title() }}</td>
+                        <td>
+                            {{ 'Удалёнка' if event.location == 'remote' else ('Офис' if event.location == 'global' else event.location.replace('_', ' ').title()) }}
+                            {% if event.location == 'remote' %}
+                            <span class="remote-badge" title="Удалённая работа">🏠</span>
+                            {% endif %}
+                        </td>
                         <td class="action-{{ event.action }}">
                             {% if event.action == 'in' %}Пришёл{% else %}Ушёл{% endif %}
                         </td>

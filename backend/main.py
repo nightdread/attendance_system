@@ -16,10 +16,10 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from config import (
-    BOT_USERNAME, WEB_USERNAME, WEB_PASSWORD,
+    BOT_USERNAME,
     API_HOST, API_PORT, QR_UPDATE_INTERVAL, SECRET_KEY, SESSION_SECRET_KEY, API_KEY, DB_PATH
 )
-from config.config import ADMIN_IP_WHITELIST
+from config.config import ADMIN_IP_WHITELIST, TIMEZONE
 from database import Database
 from auth.jwt_handler import JWTHandler
 from backend.schemas import (
@@ -126,8 +126,6 @@ LOGIN_BLOCK_SEC = 900   # block 15 minutes
 LOGIN_ATTEMPTS = defaultdict(list)
 
 
-TRUSTED_PROXIES = {"127.0.0.1", "::1", "172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"}
-
 def _is_trusted_proxy(ip: str) -> bool:
     """Check if IP belongs to a trusted proxy (Docker/local network)"""
     return ip in ("127.0.0.1", "::1") or ip.startswith(("172.", "10.", "192.168."))
@@ -223,7 +221,29 @@ def format_hours_filter(hours: float) -> str:
     """Jinja2 filter to format hours as HH:MM"""
     return format_hours_to_hhmm_util(hours)
 
+def utc_ts_to_local_filter(ts) -> str:
+    """Convert UTC timestamp (ISO or YYYY-MM-DD HH:MM:SS) to local time for display."""
+    if ts is None:
+        return ""
+    if hasattr(ts, "isoformat"):
+        ts = ts.isoformat()
+    s = str(ts).strip()[:19]
+    if not s:
+        return ""
+    try:
+        s = s.replace("Z", "+00:00")
+        if "T" not in s and " " in s:
+            s = s.replace(" ", "T", 1)
+        dt_utc = datetime.fromisoformat(s)
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        local = dt_utc.astimezone(TIMEZONE)
+        return local.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(ts)[:19].replace("T", " ")
+
 templates.env.filters["format_hours"] = format_hours_filter
+templates.env.filters["utc_to_local"] = utc_ts_to_local_filter
 
 # Database instance
 db = Database(str(DB_PATH))
@@ -244,9 +264,11 @@ def build_terminal_context(request: Request, db: Database) -> dict:
         jwt_token = request.session.get("access_token")
         if jwt_token:
             payload = JWTHandler.verify_token(jwt_token)
-            username = payload.get("sub")
-            if username:
-                user = db.get_web_user_by_username(username)
+            if payload:
+                username = payload.get("sub")
+                user = None
+                if username:
+                    user = db.get_web_user_by_username(username)
                 if user:
                     user_info = {
                         "username": username,
@@ -293,7 +315,8 @@ def build_terminal_context(request: Request, db: Database) -> dict:
 async def get_active_token(request: Request, db: Database = Depends(get_db)):
     """Get active token for attendance"""
     # Rate limiting
-    rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_token")
+    # Terminal polls every 5s (~12/min); allow 120/min for multiple terminals behind proxy
+    rate_limit(request, max_requests=120, window_seconds=60, block_seconds=30, key_prefix="api_token")
     # Авторизация: API key или авторизованная сессия
     # Терминал теперь требует авторизацию, поэтому убираем allow_terminal_session
     authorize_request(request, allow_terminal_session=False)
@@ -557,8 +580,13 @@ async def admin_page(request: Request, db: Database = Depends(get_db)):
     if user_role not in ["admin", "manager", "hr"]:
         return RedirectResponse(url="/me", status_code=302)
 
-    # Get currently present users
-    present_users = db.get_currently_present()
+    # Get currently present users; convert arrival time to local timezone for display
+    raw_present = db.get_currently_present()
+    present_users = []
+    for u in raw_present:
+        row = dict(u)
+        row["ts"] = utc_ts_to_local_filter(row.get("ts"))
+        present_users.append(row)
 
     initial_creds = None
     if user_role in ["admin", "manager", "hr"]:
@@ -608,6 +636,11 @@ async def self_dashboard(request: Request, db: Database = Depends(get_db)):
 
     try:
         payload = JWTHandler.verify_token(token)
+        if not payload:
+            # Токен невалидный или истек - редирект на логин
+            request.session.clear()
+            return RedirectResponse(url="/login", status_code=302)
+        
         username = payload.get("sub")
         role = payload.get("role", "user")
 
@@ -657,6 +690,11 @@ async def analytics_dashboard(request: Request):
 
     try:
         payload = JWTHandler.verify_token(token)
+        if not payload:
+            # Токен невалидный или истек - редирект на логин
+            request.session.clear()
+            return RedirectResponse(url="/login", status_code=302)
+        
         user_role = payload.get("role", "user")
 
         # Проверяем права доступа
@@ -702,6 +740,11 @@ async def user_management(request: Request, db: Database = Depends(get_db)):
 
     try:
         payload = JWTHandler.verify_token(token)
+        if not payload:
+            # Токен невалидный или истек - редирект на логин
+            request.session.clear()
+            return RedirectResponse(url="/login", status_code=302)
+        
         user_role = payload.get("role", "user")
 
         # Проверяем права доступа (только админ и менеджер)
@@ -1483,6 +1526,7 @@ async def create_vacation(
 ):
     """Создать запись об отпуске"""
     rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_vacations")
+    await require_csrf_token(request)
     payload = authorize_request(request, require_roles=["admin", "manager", "hr"])
     
     current_user = db.get_web_user_by_username(payload.get("sub"))
@@ -1529,6 +1573,7 @@ async def create_sick_leave(
 ):
     """Создать запись о больничном"""
     rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_sick_leaves")
+    await require_csrf_token(request)
     payload = authorize_request(request, require_roles=["admin", "manager", "hr"])
     
     current_user = db.get_web_user_by_username(payload.get("sub"))
@@ -1572,6 +1617,7 @@ async def create_report_template(
 ):
     """Создать шаблон отчета"""
     rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_templates")
+    await require_csrf_token(request)
     payload = authorize_request(request, require_roles=["admin", "manager"])
     
     current_user = db.get_web_user_by_username(payload.get("sub"))
@@ -1589,6 +1635,7 @@ async def delete_report_template(
 ):
     """Удалить шаблон отчета"""
     rate_limit(request, max_requests=10, window_seconds=60, key_prefix="api_templates")
+    await require_csrf_token(request)
     payload = authorize_request(request, require_roles=["admin"])
     
     success = db.delete_report_template(template_id)
