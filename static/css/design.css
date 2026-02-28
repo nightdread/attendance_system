@@ -296,6 +296,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 .collapse-btn {
   width: 32px;
@@ -308,6 +310,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   transition: background var(--duration) var(--ease-out), color var(--duration) var(--ease-out);
 }
 .collapse-btn:hover {
@@ -705,10 +708,46 @@ body {
   }
   .sidebar.open { transform: translateX(0); }
   .sidebar.collapsed { width: 72px; }
-  .main-content { padding: 1rem; }
+  .main-content {
+    padding: 1rem;
+    padding-top: 3.25rem; /* оставить место под кнопку меню вверху */
+  }
 }
 @media (max-width: 768px) {
   .main-content { padding: 1rem; }
   .page-title { font-size: 1.375rem; }
   .kpi-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* Mobile tweaks for analytics calendar and headers */
+@media (max-width: 768px) {
+  .card-header.collapsible {
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .card-header.collapsible .collapse-btn {
+    flex-shrink: 0;
+  }
+
+  .calendar-wrapper {
+    padding: 0.75rem;
+  }
+  .calendar-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  #calendar-month-year {
+    text-align: center;
+  }
+  .calendar-nav-btn {
+    width: 100%;
+  }
+
+  .calendar-grid {
+    gap: 0.35rem;
+  }
+  .calendar-day {
+    aspect-ratio: 0.9;
+  }
 }
