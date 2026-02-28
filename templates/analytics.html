@@ -1,1548 +1,417 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Аналитика - Система учета</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        :root {
-            --bg: #0f172a;
-            --card: #111827;
-            --text: #e5e7eb;
-            --muted: #94a3b8;
-            --accent: #0ea5e9;
-            --accent-hover: #0284c7;
-            --border: #1f2937;
-            --shadow: 0 10px 30px rgba(0,0,0,0.35);
-            --success: #22c55e;
-            --warn: #f59e0b;
-            --danger: #ef4444;
-        }
-        body {
-            font-family: Arial, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        .nav {
-            margin-bottom: 2rem;
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-        .nav a {
-            padding: 0.5rem 1rem;
-            background: var(--accent);
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            box-shadow: 0 4px 10px rgba(14,165,233,0.25);
-            transition: background 0.15s ease, transform 0.1s ease;
-        }
-        .nav a:hover {
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-        }
-        .section {
-            background: var(--card);
-            border-radius: 12px;
-            box-shadow: var(--shadow);
-            padding: 1.5rem;
-            border: 1px solid var(--border);
-            margin-bottom: 2rem;
-        }
-        .section h2 {
-            margin-top: 0;
-            color: var(--text);
-            border-bottom: 2px solid var(--accent);
-            padding-bottom: 0.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            user-select: none;
-        }
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            width: 100%;
-        }
-        .collapse-btn {
-            background: transparent;
-            border: none;
-            color: var(--accent);
-            font-size: 1.5rem;
-            cursor: pointer;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            transition: all 0.15s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .collapse-btn:hover {
-            background: rgba(14,165,233,0.1);
-            transform: scale(1.1);
-        }
-        .section-content {
-            transition: max-height 0.3s ease, opacity 0.3s ease;
-            overflow: hidden;
-        }
-        .section-content.collapsed {
-            max-height: 0;
-            opacity: 0;
-            margin: 0;
-            padding: 0;
-        }
-        .section-content.expanded {
-            max-height: 5000px;
-            opacity: 1;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        .stat-card {
-            background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
-            color: white;
-            padding: 1.5rem;
-            border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 6px 16px rgba(14,165,233,0.3);
-        }
-        .stat-value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            display: block;
-            margin-bottom: 0.5rem;
-        }
-        .stat-label {
-            font-size: 0.9rem;
-            opacity: 0.9;
-        }
-        .chart-container {
-            position: relative;
-            height: 400px;
-            margin-bottom: 2rem;
-        }
-        .charts-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-            gap: 2rem;
-            margin-bottom: 2rem;
-        }
-        .table-wrapper {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            margin: 1rem 0;
-        }
-        table {
-            width: 100%;
-            min-width: 600px;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        th, td {
-            padding: 0.75rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-            color: var(--text);
-        }
-        th {
-            background-color: #0b1220;
-            font-weight: 600;
-        }
-        .top-worker {
-            background: rgba(14,165,233,0.08);
-        }
-        .department-card {
-            background: #0b1220;
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 0.5rem;
-            border: 1px solid var(--border);
-        }
-        .progress-bar {
-            background: #1f2937;
-            border-radius: 4px;
-            height: 8px;
-            margin-top: 0.5rem;
-        }
-        .progress-fill {
-            background: var(--accent);
-            height: 100%;
-            border-radius: 4px;
-        }
-        .no-data {
-            text-align: center;
-            color: var(--muted);
-            padding: 3rem;
-            font-style: italic;
-        }
-        .metric-positive {
-            color: var(--success);
-        }
-        .metric-neutral {
-            color: var(--muted);
-        }
-        .metric-highlight {
-            background: rgba(14,165,233,0.08);
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-        }
-        .legend-box {
-            margin-top: 2rem;
-            padding: 1rem;
-            background: var(--card);
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            box-shadow: var(--shadow);
-            border-left: 4px solid var(--accent);
-            color: var(--text);
-        }
-        .legend-box h4 {
-            margin: 0 0 0.75rem 0;
-            color: var(--accent);
-        }
-        .legend-items {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .legend-pill {
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            color: white;
-        }
-        .legend-admin {
-            background: #0ea5e9;
-        }
-        .legend-employee {
-            background: #22c55e;
-        }
-        .calendar-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin-bottom: 2rem;
-        }
-        .calendar-wrapper {
-            background: var(--card);
-            border-radius: 12px;
-            padding: 1.5rem;
-            border: 1px solid var(--border);
-        }
-        .calendar-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-        .calendar-nav-btn {
-            background: var(--accent);
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1rem;
-            transition: background 0.15s ease;
-        }
-        .calendar-nav-btn:hover {
-            background: var(--accent-hover);
-        }
-        .calendar-grid {
-            display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            gap: 0.5rem;
-        }
-        .calendar-day-header {
-            text-align: center;
-            font-weight: 600;
-            color: var(--muted);
-            padding: 0.5rem;
-            font-size: 0.9rem;
-        }
-        .calendar-day {
-            aspect-ratio: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            border-radius: 6px;
-            border: 1px solid var(--border);
-            background: #0b1220;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            position: relative;
-        }
-        .calendar-day:hover {
-            border-color: var(--accent);
-            transform: scale(1.05);
-        }
-        .calendar-day.other-month {
-            opacity: 0.3;
-        }
-        .calendar-day.today {
-            border-color: var(--accent);
-            background: rgba(14,165,233,0.1);
-        }
-        .calendar-day.holiday {
-            background: rgba(220, 53, 69, 0.2);
-            border-color: rgba(220, 53, 69, 0.5);
-        }
-        .calendar-day.holiday:hover {
-            background: rgba(220, 53, 69, 0.3);
-            border-color: rgba(220, 53, 69, 0.7);
-        }
-        .calendar-day.holiday .calendar-day-number {
-            color: #ff6b6b;
-        }
-        .calendar-day.today.holiday {
-            border-color: #ff6b6b;
-            background: rgba(220, 53, 69, 0.15);
-        }
-        .calendar-day.has-visits {
-            background: rgba(34,197,94,0.2);
-            border-color: var(--success);
-        }
-        .calendar-day.has-visits.many-visits {
-            background: rgba(34,197,94,0.4);
-        }
-        .calendar-day.holiday.has-visits {
-            background: rgba(220, 53, 69, 0.3);
-        }
-        .calendar-day-number {
-            font-size: 0.9rem;
-            font-weight: 600;
-        }
-        .calendar-day-visits {
-            font-size: 0.7rem;
-            color: var(--success);
-            margin-top: 0.2rem;
-        }
-        .date-filter {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
-        }
-        .date-filter input[type="date"] {
-            padding: 0.5rem;
-            background: #0b1220;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 1rem;
-        }
-        .date-filter button {
-            padding: 0.5rem 1rem;
-            background: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: background 0.15s ease;
-        }
-        .date-filter button:hover {
-            background: var(--accent-hover);
-        }
-        .day-modal {
-            display: none;
-            position: fixed;
-            z-index: 2000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.7);
-            overflow: auto;
-        }
-        .day-modal-content {
-            background-color: var(--card);
-            margin: 5% auto;
-            padding: 2rem;
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            width: 90%;
-            max-width: 700px;
-            box-shadow: var(--shadow);
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        .day-modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1.5rem;
-            border-bottom: 2px solid var(--accent);
-            padding-bottom: 1rem;
-        }
-        .day-modal-close {
-            color: var(--muted);
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-            background: none;
-            border: none;
-            padding: 0;
-            line-height: 1;
-        }
-        .day-modal-close:hover {
-            color: var(--text);
-        }
-        .employees-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        .employee-item {
-            padding: 1rem;
-            margin-bottom: 0.5rem;
-            background: #0b1220;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .employee-item.employee-remote {
-            background: rgba(168, 85, 247, 0.08);
-            border-left: 3px solid #a855f7;
-        }
-        .employee-info {
-            flex: 1;
-        }
-        .employee-name {
-            font-weight: 600;
-            color: var(--text);
-            margin-bottom: 0.25rem;
-        }
-        .employee-meta {
-            font-size: 0.85rem;
-            color: var(--muted);
-        }
-        .employee-times {
-            text-align: right;
-            font-size: 0.9rem;
-        }
-        .time-badge {
-            display: inline-block;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            margin-left: 0.5rem;
-            font-size: 0.85rem;
-        }
-        .time-checkin {
-            background: rgba(34,197,94,0.2);
-            color: var(--success);
-        }
-        .time-checkout {
-            background: rgba(239,68,68,0.2);
-            color: var(--danger);
-        }
-        .no-employees {
-            text-align: center;
-            color: var(--muted);
-            padding: 2rem;
-        }
-        /* Responsive table styles */
-        @media (max-width: 768px) {
-            .stats-grid {
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            }
-            .charts-grid {
-                grid-template-columns: 1fr;
-            }
-            .calendar-container {
-                grid-template-columns: 1fr;
-            }
-            .chart-container {
-                height: 300px;
-            }
-            table {
-                font-size: 0.85rem;
-            }
-            table th, table td {
-                padding: 0.5rem 0.25rem;
-            }
-        }
-        @media (max-width: 480px) {
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-            .stat-value {
-                font-size: 2rem;
-            }
-            table {
-                font-size: 0.75rem;
-            }
-        }
-        /* Mobile styles */
-        @media (max-width: 768px) {
-            body {
-                padding: 1rem;
-            }
-            .container {
-                max-width: 100%;
-            }
-            .header h1 {
-                font-size: 1.5rem;
-            }
-            .nav {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-            .nav a {
-                width: 100%;
-                text-align: center;
-                padding: 0.75rem;
-                min-height: 44px;
-            }
-            .section {
-                padding: 1rem;
-                margin-bottom: 1rem;
-            }
-            .section h2 {
-                font-size: 1.1rem;
-            }
-            .stats-grid {
-                grid-template-columns: 1fr;
-                gap: 0.75rem;
-            }
-            .stat-card {
-                padding: 1rem;
-            }
-            .stat-value {
-                font-size: 2rem;
-            }
-            .charts-grid {
-                grid-template-columns: 1fr;
-                gap: 1rem;
-            }
-            .chart-container {
-                height: 300px;
-            }
-            table {
-                display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-            th, td {
-                padding: 0.5rem;
-                font-size: 0.85rem;
-                white-space: nowrap;
-            }
-            .department-card {
-                padding: 0.75rem;
-            }
-            .employee-card {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-            .employee-times {
-                text-align: left;
-                margin-top: 0.5rem;
-                width: 100%;
-            }
-            .time-badge {
-                display: block;
-                margin: 0.25rem 0;
-                margin-left: 0;
-            }
-            .date-picker {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-            .date-picker input {
-                width: 100%;
-                padding: 0.75rem;
-                min-height: 44px;
-            }
-            .date-picker button {
-                width: 100%;
-                padding: 0.75rem;
-                min-height: 44px;
-            }
-            .day-modal-content {
-                width: 95%;
-                margin: 10% auto;
-                padding: 1rem;
-                max-height: 85vh;
-            }
-            .day-modal-header {
-                font-size: 1rem;
-                margin-bottom: 1rem;
-                padding-bottom: 0.75rem;
-            }
-            .day-modal-close {
-                font-size: 24px;
-                min-width: 44px;
-                min-height: 44px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-        }
-        @media (max-width: 480px) {
-            body {
-                padding: 0.5rem;
-            }
-            .section {
-                padding: 0.75rem;
-            }
-            .header h1 {
-                font-size: 1.25rem;
-            }
-            .stat-value {
-                font-size: 1.75rem;
-            }
-            .chart-container {
-                height: 250px;
-            }
-            .export-btn:hover {
-                opacity: 0.9;
-                transform: translateY(-1px);
-                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            }
-            .export-btn:active {
-                transform: translateY(0);
-            }
-            th, td {
-                padding: 0.4rem;
-                font-size: 0.8rem;
-            }
-            .day-modal-content {
-                width: 98%;
-                margin: 5% auto;
-                padding: 0.75rem;
-            }
-            .day-modal-header {
-                font-size: 0.9rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📊 Аналитика системы учета времени</h1>
-            <p>Отчет за {{ analytics_summary.today_visits or 0 }} посещений сегодня</p>
-        </div>
+{% extends "base.html" %}
+{% block title %}Аналитика — Система учета{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Аналитика</h1>
+  <p class="page-subtitle">Посещений сегодня: {{ analytics_summary.today_visits or 0 }}</p>
+</div>
 
-        <div class="nav">
-            <a href="/">🏠 Терминал</a>
-            <a href="/admin">👥 Админ панель</a>
-            <a href="/users">⚙️ Пользователи</a>
-            <a href="/logout">🚪 Выход</a>
-        </div>
-
-        <!-- Общая статистика -->
-        <div class="section">
-            <h2 onclick="toggleSection('stats-section')">
-                <span>📈 Общая статистика</span>
-                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('stats-section')">▶</button>
-            </h2>
-            <div id="stats-section" class="section-content collapsed">
-                <div class="stats-grid">
-                <div class="stat-card">
-                    <span class="stat-value">{{ analytics_summary.total_users }}</span>
-                    <div class="stat-label">Всего пользователей</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">{{ analytics_summary.currently_present }}</span>
-                    <div class="stat-label">Сейчас в офисе</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">{{ analytics_summary.today_visits }}</span>
-                    <div class="stat-label">Посещений сегодня</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">{{ analytics_summary.avg_work_time|format_hours if analytics_summary.avg_work_time else "-" }}</span>
-                    <div class="stat-label">Среднее время работы (30 дней)</div>
-                </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Календарь посещаемости -->
-        <div class="section">
-            <h2 onclick="toggleSection('calendar-section')">
-                <span>📅 Календарь посещаемости</span>
-                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('calendar-section')">▶</button>
-            </h2>
-            <div id="calendar-section" class="section-content collapsed">
-            <div class="calendar-container">
-                <div class="calendar-wrapper">
-                    <div class="calendar-header">
-                        <button class="calendar-nav-btn" onclick="changeMonth(-1)">← Предыдущий</button>
-                        <h3 id="calendar-month-year"></h3>
-                        <button class="calendar-nav-btn" onclick="changeMonth(1)">Следующий →</button>
-                    </div>
-                    <div class="calendar-grid" id="calendar-grid"></div>
-                </div>
-            </div>
-            </div>
-        </div>
-
-        <!-- Графики -->
-        <div class="section">
-            <h2 onclick="toggleSection('charts-section')">
-                <span>📊 Графики посещаемости</span>
-                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('charts-section')">▶</button>
-            </h2>
-            <div id="charts-section" class="section-content collapsed">
-            <div class="charts-grid">
-                <div>
-                    <h3>Посещения по дням (7 дней)</h3>
-                    <div class="chart-container">
-                        <canvas id="dailyVisitsChart"></canvas>
-                    </div>
-                </div>
-                <div>
-                    <h3>Распределение по часам</h3>
-                    <div class="chart-container">
-                        <canvas id="hourlyChart"></canvas>
-                    </div>
-                </div>
-            </div>
-            </div>
-        </div>
-
-        <!-- Топ работников -->
-        <div class="section">
-            <h2 onclick="toggleSection('top-workers-section')">
-                <span>🏆 Топ работников (за 30 дней)</span>
-                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('top-workers-section')">▶</button>
-            </h2>
-            <div id="top-workers-section" class="section-content collapsed">
-            {% if top_workers %}
-            <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Место</th>
-                        <th>Сотрудник</th>
-                        <th>Рабочих дней</th>
-                        <th>Общее время (часы)</th>
-                        <th>Среднее в день</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for worker in top_workers %}
-                    <tr class="{% if loop.index <= 3 %}top-worker{% endif %}">
-                        <td>
-                            {% if loop.index == 1 %}🥇
-                            {% elif loop.index == 2 %}🥈
-                            {% elif loop.index == 3 %}🥉
-                            {% else %}{{ loop.index }}{% endif %}
-                        </td>
-                        <td>{{ worker.name }}</td>
-                        <td>{{ worker.work_days }}</td>
-                        <td class="metric-highlight">{{ worker.total_hours|format_hours }}</td>
-                        <td>{{ ((worker.total_hours / worker.work_days) if worker.work_days > 0 else 0)|format_hours }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            </div>
-            {% else %}
-            <div class="no-data">
-                <p>📝 Данные о посещаемости еще не собраны.</p>
-                <p>Статистика появится после того, как сотрудники начнут отмечать приход и уход.</p>
-            </div>
-            {% endif %}
-            </div>
-        </div>
-
-        <!-- Статистика по отделам -->
-        <div class="section">
-            <h2 onclick="toggleSection('departments-section')">
-                <span>🏢 Статистика по отделам и категориям</span>
-                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('departments-section')">▶</button>
-            </h2>
-            <div id="departments-section" class="section-content collapsed">
-            {% if department_stats %}
-                {% for dept in department_stats %}
-                <div class="department-card">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <strong>{{ dept.department }}</strong>
-                            {% if dept.user_type == 'web' %}
-                                <span style="background: #007bff; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem;">АДМИН</span>
-                            {% elif dept.user_type == 'regular' %}
-                                <span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7rem;">СОТРУДНИКИ</span>
-                            {% endif %}
-                            <div style="color: #666; font-size: 0.9rem;">
-                                {{ dept.user_count }} пользователей • {{ dept.active_users }} активных
-                                {% if dept.user_type == 'regular' %}
-                                    <em>(отмечаются через QR)</em>
-                                {% endif %}
-                            </div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 1.2rem; font-weight: bold; {% if dept.active_users == 0 %}color: #dc3545;{% endif %}">
-                                {{ "%.0f"|format(dept.active_users / dept.user_count * 100 if dept.user_count > 0 else 0) }}%
-                            </div>
-                            <div style="color: #666; font-size: 0.8rem;">активность</div>
-                        </div>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: {{ "%.0f"|format(dept.active_users / dept.user_count * 100 if dept.user_count > 0 else 0) }}%;
-                            {% if dept.active_users == 0 %}background: #dc3545;{% endif %}"></div>
-                    </div>
-                </div>
-                {% endfor %}
-
-                <div class="legend-box">
-                    <h4>📊 Легенда:</h4>
-                    <div class="legend-items">
-                        <div class="legend-item">
-                            <span class="legend-pill legend-admin">АДМИН</span>
-                            <span>Веб-пользователи (admin, hr, manager)</span>
-                        </div>
-                        <div class="legend-item">
-                            <span class="legend-pill legend-employee">СОТРУДНИКИ</span>
-                            <span>Обычные работники (регистрируются через бота)</span>
-                        </div>
-                    </div>
-                </div>
-            {% else %}
-            <div class="no-data">
-                <p>🏢 Статистика по отделам недоступна.</p>
-                <p>Пользователи еще не зарегистрированы в системе.</p>
-            </div>
-            {% endif %}
-            </div>
-        </div>
-
-        <!-- Детальная статистика сотрудника -->
-        <div class="section">
-            <h2 onclick="toggleSection('employee-section')">
-                <span>👤 Детальная статистика сотрудника</span>
-                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('employee-section')">▶</button>
-            </h2>
-            <div id="employee-section" class="section-content collapsed">
-            <div style="margin-bottom: 1rem;">
-                <label for="employee-select" style="font-weight: bold; margin-right: 1rem;">Выберите сотрудника:</label>
-                <select id="employee-select" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd;">
-                    <option value="">-- Выберите сотрудника --</option>
-                    {% for employee in employee_list %}
-                    <option value="{{ employee.id }}">{{ employee.fio }} (@{{ employee.username or 'нет' }})</option>
-                    {% endfor %}
-                </select>
-                <button onclick="loadEmployeeStats()" style="margin-left: 1rem; padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Показать статистику</button>
-            </div>
-
-            <div id="employee-stats" style="display: none;">
-                <div id="employee-info" class="stats-grid" style="margin-bottom: 2rem;"></div>
-                <div id="employee-details"></div>
-            </div>
-            </div>
-        </div>
-
-        <!-- Экспорт отчета -->
-        <div class="section">
-            <h2 onclick="toggleSection('export-section')">
-                <span>📥 Экспорт отчета в Excel</span>
-                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('export-section')">▶</button>
-            </h2>
-            <div id="export-section" class="section-content collapsed">
-                <div style="padding: 1rem;">
-                    <h3>Выберите период для экспорта:</h3>
-                    <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-                        <button onclick="exportReport('last_week')" class="export-btn" style="padding: 0.75rem 1.5rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500;">
-                            📅 Последняя неделя
-                        </button>
-                        <button onclick="exportReport('last_month')" class="export-btn" style="padding: 0.75rem 1.5rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500;">
-                            📅 Последний месяц
-                        </button>
-                        <button onclick="exportReport('current_month')" class="export-btn" style="padding: 0.75rem 1.5rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500;">
-                            📅 Текущий месяц
-                        </button>
-                    </div>
-                    <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #ddd;">
-                        <h3>Или выберите диапазон дат:</h3>
-                        <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-top: 1rem;">
-                            <div>
-                                <label for="export-start-date" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">С:</label>
-                                <input type="date" id="export-start-date" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; font-size: 1rem;">
-                            </div>
-                            <div>
-                                <label for="export-end-date" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">По:</label>
-                                <input type="date" id="export-end-date" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; font-size: 1rem;">
-                            </div>
-                            <div style="align-self: flex-end;">
-                                <button onclick="exportReportByDate()" class="export-btn" style="padding: 0.75rem 1.5rem; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500;">
-                                    📊 Экспортировать
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="export-status" style="margin-top: 1rem; padding: 0.75rem; border-radius: 4px; display: none;"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Дополнительная информация -->
-        <div class="section">
-            <h2 onclick="toggleSection('info-section')">
-                <span>ℹ️ Информация</span>
-                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection('info-section')">▶</button>
-            </h2>
-            <div id="info-section" class="section-content collapsed">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
-                <div>
-                    <h4>📅 Период анализа</h4>
-                    <p>Графики показывают данные за последние 7 дней.</p>
-                    <p>Статистика по работникам - за последние 30 дней.</p>
-                </div>
-                <div>
-                    <h4>⏰ Расчет времени</h4>
-                    <p>Время работы рассчитывается от момента прихода до момента ухода.</p>
-                    <p>Учитываются только полные сессии (приход + уход).</p>
-                </div>
-                <div>
-                    <h4>🔄 Обновление данных</h4>
-                    <p>Данные обновляются в реальном времени.</p>
-                    <p>Обновите страницу для получения свежей статистики.</p>
-                </div>
-            </div>
-            </div>
-        </div>
+<!-- KPI -->
+<div class="card mb-6">
+  <h2 class="card-header collapsible" onclick="toggleSection('stats-section')">
+    <span>Общая статистика</span>
+    <button type="button" class="collapse-btn" onclick="event.stopPropagation(); toggleSection('stats-section')">▼</button>
+  </h2>
+  <div id="stats-section" class="section-content expanded">
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-value">{{ analytics_summary.total_users }}</div>
+        <div class="kpi-label">Всего пользователей</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">{{ analytics_summary.currently_present }}</div>
+        <div class="kpi-label">Сейчас на работе</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">{{ analytics_summary.today_visits }}</div>
+        <div class="kpi-label">Посещений сегодня</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">{{ analytics_summary.avg_work_time|format_hours if analytics_summary.avg_work_time else '-' }}</div>
+        <div class="kpi-label">Среднее время работы (30 дн.)</div>
+      </div>
     </div>
+  </div>
+</div>
 
-    <!-- Модальное окно для просмотра сотрудников дня -->
-    <div id="dayModal" class="day-modal">
-        <div class="day-modal-content">
-            <div class="day-modal-header">
-                <h2 id="dayModalTitle">Сотрудники</h2>
-                <button class="day-modal-close" onclick="closeDayModal()">&times;</button>
-            </div>
-            <div id="dayModalBody">
-                <div class="no-employees">Загрузка...</div>
-            </div>
-        </div>
+<!-- Calendar -->
+<div class="card mb-6">
+  <h2 class="card-header collapsible" onclick="toggleSection('calendar-section')">
+    <span>Календарь посещаемости</span>
+    <button type="button" class="collapse-btn" onclick="event.stopPropagation(); toggleSection('calendar-section')">▶</button>
+  </h2>
+  <div id="calendar-section" class="section-content collapsed">
+    <div class="calendar-wrapper">
+      <div class="calendar-header">
+        <button type="button" class="calendar-nav-btn" onclick="changeMonth(-1)">← Назад</button>
+        <h3 id="calendar-month-year" class="text-lg font-semibold m-0"></h3>
+        <button type="button" class="calendar-nav-btn" onclick="changeMonth(1)">Вперёд →</button>
+      </div>
+      <div class="calendar-grid" id="calendar-grid"></div>
     </div>
+  </div>
+</div>
 
-    <script>
-        // Функция сворачивания/разворачивания разделов
-        function toggleSection(sectionId) {
-            const section = document.getElementById(sectionId);
-            const btn = section.previousElementSibling.querySelector('.collapse-btn');
-            
-            if (section.classList.contains('collapsed')) {
-                section.classList.remove('collapsed');
-                section.classList.add('expanded');
-                btn.textContent = '▼';
-            } else {
-                section.classList.remove('expanded');
-                section.classList.add('collapsed');
-                btn.textContent = '▶';
-            }
-            
-            // Сохраняем состояние в localStorage
-            localStorage.setItem(`section_${sectionId}`, section.classList.contains('collapsed') ? 'collapsed' : 'expanded');
-        }
-        
-        // Восстанавливаем состояние разделов при загрузке страницы
-        document.addEventListener('DOMContentLoaded', function() {
-            const sections = ['stats-section', 'calendar-section', 'charts-section', 'top-workers-section', 
-                             'departments-section', 'employee-section', 'info-section'];
-            
-            sections.forEach(sectionId => {
-                const savedState = localStorage.getItem(`section_${sectionId}`);
-                const section = document.getElementById(sectionId);
-                const btn = section.previousElementSibling.querySelector('.collapse-btn');
-                
-                if (section && btn) {
-                    // Если есть сохраненное состояние и оно expanded, разворачиваем
-                    if (savedState === 'expanded') {
-                        section.classList.remove('collapsed');
-                        section.classList.add('expanded');
-                        btn.textContent = '▼';
-                    } else {
-                        // По умолчанию все свернуты
-                        section.classList.remove('expanded');
-                        section.classList.add('collapsed');
-                        btn.textContent = '▶';
-                    }
-                }
-            });
-        });
+<!-- Charts -->
+<div class="card mb-6">
+  <h2 class="card-header collapsible" onclick="toggleSection('charts-section')">
+    <span>Графики</span>
+    <button type="button" class="collapse-btn" onclick="event.stopPropagation(); toggleSection('charts-section')">▶</button>
+  </h2>
+  <div id="charts-section" class="section-content collapsed">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <h3 class="text-sm font-semibold text-[var(--text-secondary)] mb-2">Посещения по дням (7 дней)</h3>
+        <div class="chart-container"><canvas id="dailyVisitsChart"></canvas></div>
+      </div>
+      <div>
+        <h3 class="text-sm font-semibold text-[var(--text-secondary)] mb-2">Распределение по часам</h3>
+        <div class="chart-container"><canvas id="hourlyChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
 
-        // Данные для графиков
-        const dailyVisitsData = {{ daily_visits|tojson }};
-        const hourlyData = {{ hourly_distribution|tojson }};
+<!-- Top workers -->
+<div class="card mb-6">
+  <h2 class="card-header collapsible" onclick="toggleSection('top-workers-section')">
+    <span>Топ работников (30 дней)</span>
+    <button type="button" class="collapse-btn" onclick="event.stopPropagation(); toggleSection('top-workers-section')">▶</button>
+  </h2>
+  <div id="top-workers-section" class="section-content collapsed">
+    {% if top_workers %}
+    <div class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>Место</th><th>Сотрудник</th><th>Дней</th><th>Часы</th><th>Среднее/день</th></tr>
+        </thead>
+        <tbody>
+          {% for worker in top_workers %}
+          <tr>
+            <td>{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}</td>
+            <td>{{ worker.name }}</td>
+            <td>{{ worker.work_days }}</td>
+            <td class="font-semibold">{{ worker.total_hours|format_hours }}</td>
+            <td>{{ ((worker.total_hours / worker.work_days) if worker.work_days > 0 else 0)|format_hours }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <p class="empty-state-title">Нет данных</p>
+      <p>Статистика появится после отметок прихода и ухода.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
 
-        // График посещений по дням
-        const dailyCtx = document.getElementById('dailyVisitsChart').getContext('2d');
-        new Chart(dailyCtx, {
-            type: 'line',
-            data: {
-                labels: dailyVisitsData.map(d => new Date(d.date).toLocaleDateString('ru-RU')),
-                datasets: [{
-                    label: 'Посещений',
-                    data: dailyVisitsData.map(d => d.visits),
-                    borderColor: '#007bff',
-                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                    tension: 0.4,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            precision: 0
-                        }
-                    }
-                }
-            }
-        });
+<!-- Departments -->
+<div class="card mb-6">
+  <h2 class="card-header collapsible" onclick="toggleSection('departments-section')">
+    <span>По отделам</span>
+    <button type="button" class="collapse-btn" onclick="event.stopPropagation(); toggleSection('departments-section')">▶</button>
+  </h2>
+  <div id="departments-section" class="section-content collapsed">
+    {% if department_stats %}
+    {% for dept in department_stats %}
+    <div class="p-4 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border)] mb-3">
+      <div class="flex justify-between items-center">
+        <div>
+          <span class="font-semibold">{{ dept.department }}</span>
+          {% if dept.user_type == 'web' %}<span class="badge badge-primary ml-2">АДМИН</span>{% elif dept.user_type == 'regular' %}<span class="badge badge-success ml-2">СОТРУДНИКИ</span>{% endif %}
+          <div class="text-sm text-[var(--text-secondary)] mt-1">{{ dept.user_count }} польз. · {{ dept.active_users }} активных</div>
+        </div>
+        <div class="text-right">
+          <span class="text-lg font-bold {% if dept.active_users == 0 %}text-[var(--danger)]{% endif %}">{{ "%.0f"|format(dept.active_users / dept.user_count * 100 if dept.user_count > 0 else 0) }}%</span>
+          <div class="text-xs text-[var(--text-muted)]">активность</div>
+        </div>
+      </div>
+      <div class="h-2 bg-[var(--border)] rounded-full mt-2 overflow-hidden">
+        <div class="h-full rounded-full bg-[var(--accent)] {% if dept.active_users == 0 %}!bg-[var(--danger)]{% endif %}" style="width: {{ "%.0f"|format(dept.active_users / dept.user_count * 100 if dept.user_count > 0 else 0) }}%"></div>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state"><p>Нет данных по отделам.</p></div>
+    {% endif %}
+  </div>
+</div>
 
-        // График распределения по часам
-        const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
-        new Chart(hourlyCtx, {
-            type: 'bar',
-            data: {
-                labels: hourlyData.map(d => `${d.hour}:00`),
-                datasets: [{
-                    label: 'Посещений',
-                    data: hourlyData.map(d => d.count),
-                    backgroundColor: 'rgba(0, 123, 255, 0.6)',
-                    borderColor: '#007bff',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            precision: 0
-                        }
-                    }
-                }
-            }
-        });
+<!-- Employee detail -->
+<div class="card mb-6">
+  <h2 class="card-header collapsible" onclick="toggleSection('employee-section')">
+    <span>Статистика сотрудника</span>
+    <button type="button" class="collapse-btn" onclick="event.stopPropagation(); toggleSection('employee-section')">▶</button>
+  </h2>
+  <div id="employee-section" class="section-content collapsed">
+    <div class="flex flex-wrap gap-3 items-center mb-4">
+      <label for="employee-select" class="font-medium">Сотрудник:</label>
+      <select id="employee-select" class="input max-w-xs">
+        <option value="">— Выберите —</option>
+        {% for employee in employee_list %}
+        <option value="{{ employee.id }}">{{ employee.fio }} (@{{ employee.username or 'нет' }})</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-primary" onclick="loadEmployeeStats()">Показать</button>
+    </div>
+    <div id="employee-stats" class="hidden">
+      <div id="employee-info" class="kpi-grid mb-6"></div>
+      <div id="employee-details"></div>
+    </div>
+  </div>
+</div>
 
-        // Экранирование HTML для предотвращения XSS
-        function escapeHtml(str) {
-            if (str === null || str === undefined) return '';
-            const div = document.createElement('div');
-            div.textContent = String(str);
-            return div.innerHTML;
-        }
+<!-- Export -->
+<div class="card mb-6">
+  <h2 class="card-header collapsible" onclick="toggleSection('export-section')">
+    <span>Экспорт отчёта</span>
+    <button type="button" class="collapse-btn" onclick="event.stopPropagation(); toggleSection('export-section')">▶</button>
+  </h2>
+  <div id="export-section" class="section-content collapsed">
+    <p class="text-[var(--text-secondary)] mb-4">Период или диапазон дат:</p>
+    <div class="flex flex-wrap gap-3 mb-4">
+      <button type="button" class="btn btn-primary" onclick="exportReport('last_week', 'xlsx')">Неделя (.xlsx)</button>
+      <button type="button" class="btn btn-primary" onclick="exportReport('last_month', 'xlsx')">Месяц (.xlsx)</button>
+      <button type="button" class="btn btn-primary" onclick="exportReport('current_month', 'xlsx')">Текущий месяц</button>
+      <button type="button" class="btn btn-outline" onclick="exportReport('last_week', 'md')">Неделя (.md)</button>
+    </div>
+    <div class="flex flex-wrap gap-3 items-end pt-4 border-t border-[var(--border)]">
+      <div><label class="block text-sm font-medium mb-1">С</label><input type="date" id="export-start-date" class="input w-40"></div>
+      <div><label class="block text-sm font-medium mb-1">По</label><input type="date" id="export-end-date" class="input w-40"></div>
+      <button type="button" class="btn btn-success" onclick="exportReportByDate('xlsx')">Экспорт .xlsx</button>
+      <button type="button" class="btn btn-outline" onclick="exportReportByDate('md')">Экспорт .md</button>
+    </div>
+    <div id="export-status" class="mt-3 p-3 rounded-lg text-sm hidden"></div>
+  </div>
+</div>
 
-        // Функция форматирования часов в ЧЧ:ММ
-        function formatHoursToHHMM(hours) {
-            if (!hours || hours <= 0) return "-";
-            const wholeHours = Math.floor(hours);
-            const minutes = Math.round((hours - wholeHours) * 60);
-            return `${wholeHours}:${minutes.toString().padStart(2, '0')}`;
-        }
+<!-- Info -->
+<div class="card mb-6">
+  <h2 class="card-header collapsible" onclick="toggleSection('info-section')">
+    <span>Информация</span>
+    <button type="button" class="collapse-btn" onclick="event.stopPropagation(); toggleSection('info-section')">▶</button>
+  </h2>
+  <div id="info-section" class="section-content collapsed">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-[var(--text-secondary)]">
+      <div><strong class="text-[var(--text-primary)]">Период</strong><p>Графики — 7 дней, топ — 30 дней.</p></div>
+      <div><strong class="text-[var(--text-primary)]">Время</strong><p>От прихода до ухода, полные сессии.</p></div>
+      <div><strong class="text-[var(--text-primary)]">Обновление</strong><p>Обновите страницу для свежих данных.</p></div>
+    </div>
+  </div>
+</div>
 
-        // Employee statistics functionality
-        async function loadEmployeeStats() {
-            const employeeId = document.getElementById('employee-select').value;
-            if (!employeeId) {
-                alert('Пожалуйста, выберите сотрудника');
-                return;
-            }
+<!-- Day modal -->
+<div id="dayModal" class="day-modal">
+  <div class="day-modal-content">
+    <div class="day-modal-header">
+      <h2 id="dayModalTitle" class="modal-title m-0">День</h2>
+      <button type="button" class="day-modal-close" onclick="closeDayModal()" aria-label="Закрыть">&times;</button>
+    </div>
+    <div id="dayModalBody"><div class="no-employees">Загрузка...</div></div>
+  </div>
+</div>
+{% endblock %}
 
-            try {
-                const response = await fetch(`/api/employee/${employeeId}`);
-                if (!response.ok) {
-                    throw new Error('Не удалось загрузить статистику');
-                }
+{% block extra_js %}
+<script>
+function toggleSection(sectionId) {
+  var section = document.getElementById(sectionId);
+  var header = section.previousElementSibling;
+  var btn = header ? header.querySelector('.collapse-btn') : null;
+  if (section.classList.contains('collapsed')) {
+    section.classList.remove('collapsed'); section.classList.add('expanded');
+    if (btn) btn.textContent = '▼';
+  } else {
+    section.classList.remove('expanded'); section.classList.add('collapsed');
+    if (btn) btn.textContent = '▶';
+  }
+  try { localStorage.setItem('section_' + sectionId, section.classList.contains('collapsed') ? 'collapsed' : 'expanded'); } catch(e) {}
+}
+document.addEventListener('DOMContentLoaded', function() {
+  ['stats-section','calendar-section','charts-section','top-workers-section','departments-section','employee-section','export-section','info-section'].forEach(function(id) {
+    var section = document.getElementById(id);
+    var header = section && section.previousElementSibling;
+    var btn = header && header.querySelector('.collapse-btn');
+    if (!section || !btn) return;
+    var saved = localStorage.getItem('section_' + id);
+    if (saved === 'expanded' || (id === 'stats-section' && saved !== 'collapsed')) {
+      section.classList.remove('collapsed'); section.classList.add('expanded'); btn.textContent = '▼';
+    } else {
+      section.classList.add('collapsed'); section.classList.remove('expanded'); btn.textContent = '▶';
+    }
+  });
+});
 
-                const data = await response.json();
-                displayEmployeeStats(data);
-            } catch (error) {
-                console.error('Error loading employee stats:', error);
-                alert('Ошибка при загрузке статистики сотрудника');
-            }
-        }
+var dailyVisitsData = {{ daily_visits|tojson }};
+var hourlyData = {{ hourly_distribution|tojson }};
 
-        function displayEmployeeStats(data) {
-            const statsDiv = document.getElementById('employee-stats');
-            const infoDiv = document.getElementById('employee-info');
-            const detailsDiv = document.getElementById('employee-details');
+var dailyCtx = document.getElementById('dailyVisitsChart').getContext('2d');
+new Chart(dailyCtx, {
+  type: 'line',
+  data: {
+    labels: dailyVisitsData.map(function(d) { return new Date(d.date).toLocaleDateString('ru-RU'); }),
+    datasets: [{ label: 'Посещений', data: dailyVisitsData.map(function(d) { return d.visits; }), borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,0.1)', tension: 0.4, fill: true }]
+  },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+});
 
-            // Basic info cards
-            infoDiv.innerHTML = `
-                <div class="stat-card">
-                    <span class="stat-value">${escapeHtml(data.fio)}</span>
-                    <div class="stat-label">ФИО</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">@${escapeHtml(data.username || 'не указан')}</span>
-                    <div class="stat-label">Username</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value" style="color: ${data.is_present ? '#28a745' : '#dc3545'}">${data.is_present ? 'В офисе' : 'Не в офисе'}</span>
-                    <div class="stat-label">Текущий статус</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">${data.total_work_days}</span>
-                    <div class="stat-label">Всего рабочих дней</div>
-                </div>
-            `;
+var hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
+new Chart(hourlyCtx, {
+  type: 'bar',
+  data: {
+    labels: hourlyData.map(function(d) { return d.hour + ':00'; }),
+    datasets: [{ label: 'Посещений', data: hourlyData.map(function(d) { return d.count; }), backgroundColor: 'rgba(99,102,241,0.6)', borderColor: '#6366F1', borderWidth: 1 }]
+  },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+});
 
-            // Detailed statistics
-            let detailsHtml = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin-top: 2rem;">
-                    <div>
-                        <h3>📊 Общая статистика</h3>
-                        <table style="width: 100%; margin-top: 1rem;">
-                            <tr><td>Всего приходов:</td><td style="text-align: right; font-weight: bold;">${data.total_checkins}</td></tr>
-                            <tr><td>Всего уходов:</td><td style="text-align: right; font-weight: bold;">${data.total_checkouts}</td></tr>
-                            <tr><td>Среднее время работы:</td><td style="text-align: right; font-weight: bold;">${formatHoursToHHMM(data.avg_work_time)}</td></tr>
-                            <tr><td>Первое посещение:</td><td style="text-align: right;">${escapeHtml(data.first_visit || 'Нет данных')}</td></tr>
-                            <tr><td>Последнее посещение:</td><td style="text-align: right;">${escapeHtml(data.last_visit || 'Нет данных')}</td></tr>
-                        </table>
-                        </div>
-                    </div>
+function escapeHtml(str) { if (str == null) return ''; var div = document.createElement('div'); div.textContent = String(str); return div.innerHTML; }
+function formatHoursToHHMM(hours) { if (!hours || hours <= 0) return '-'; var h = Math.floor(hours); var m = Math.round((hours - h) * 60); return h + ':' + (m < 10 ? '0' : '') + m; }
 
-                    <div>
-                        <h3>📅 Месячная активность</h3>
-                        <div style="max-height: 200px; overflow-y: auto;">
-                            <table style="width: 100%; margin-top: 1rem;">
-                                <thead>
-                                    <tr><th>Месяц</th><th>Дни</th><th>Посещений</th></tr>
-                                </thead>
-                                <tbody>
-            `;
+function loadEmployeeStats() {
+  var id = document.getElementById('employee-select').value;
+  if (!id) { alert('Выберите сотрудника'); return; }
+  fetch('/api/employee/' + id).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error(r.statusText)); }).then(displayEmployeeStats).catch(function(e) { alert('Ошибка загрузки'); });
+}
+function displayEmployeeStats(data) {
+  var statsDiv = document.getElementById('employee-stats');
+  var infoDiv = document.getElementById('employee-info');
+  var detailsDiv = document.getElementById('employee-details');
+  statsDiv.classList.remove('hidden');
+  infoDiv.innerHTML = '<div class="stat-card"><span class="stat-value">' + escapeHtml(data.fio) + '</span><div class="stat-label">ФИО</div></div><div class="stat-card"><span class="stat-value">@' + escapeHtml(data.username || '—') + '</span><div class="stat-label">Username</div></div><div class="stat-card"><span class="stat-value" style="color:' + (data.is_present ? 'var(--success)' : 'var(--danger)') + '">' + (data.is_present ? 'В офисе' : 'Не в офисе') + '</span><div class="stat-label">Статус</div></div><div class="stat-card"><span class="stat-value">' + data.total_work_days + '</span><div class="stat-label">Рабочих дней</div></div>';
+  var detailsHtml = '<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4"><div class="card"><h3 class="font-semibold mb-2">Общая статистика</h3><table class="data-table"><tr><td>Приходов</td><td class="text-right font-semibold">' + data.total_checkins + '</td></tr><tr><td>Уходов</td><td class="text-right font-semibold">' + data.total_checkouts + '</td></tr><tr><td>Среднее время</td><td class="text-right">' + formatHoursToHHMM(data.avg_work_time) + '</td></tr></table></div><div class="card"><h3 class="font-semibold mb-2">Последние сессии</h3><div class="max-h-48 overflow-y-auto"><table class="data-table"><thead><tr><th>Дата</th><th>Приход</th><th>Уход</th><th>Часы</th></tr></thead><tbody>';
+  if (data.recent_sessions && data.recent_sessions.length) data.recent_sessions.forEach(function(s) { detailsHtml += '<tr><td>' + escapeHtml(s.work_date) + '</td><td>' + escapeHtml(s.checkin_time) + '</td><td>' + escapeHtml(s.checkout_time) + '</td><td>' + formatHoursToHHMM(s.work_hours) + '</td></tr>'; });
+  else detailsHtml += '<tr><td colspan="4" class="text-center text-[var(--text-muted)]">Нет данных</td></tr>';
+  detailsHtml += '</tbody></table></div></div></div>';
+  detailsDiv.innerHTML = detailsHtml;
+  statsDiv.scrollIntoView({ behavior: 'smooth' });
+}
 
-            if (data.monthly_stats && data.monthly_stats.length > 0) {
-                data.monthly_stats.forEach(month => {
-                    detailsHtml += `<tr><td>${escapeHtml(month.month)}</td><td>${escapeHtml(month.work_days)}</td><td>${escapeHtml(month.checkins)}</td></tr>`;
-                });
-            } else {
-                detailsHtml += `<tr><td colspan="3" style="text-align: center;">Нет данных за последние месяцы</td></tr>`;
-            }
+var currentCalendarDate = new Date();
+var calendarData = {};
+function loadCalendarData() {
+  var year = currentCalendarDate.getFullYear();
+  var month = currentCalendarDate.getMonth() + 1;
+  fetch('/api/analytics/calendar/' + year + '/' + month).then(function(r) { return r.ok ? r.json() : {}; }).then(function(data) {
+    calendarData = {};
+    if (data.days && data.days.length) data.days.forEach(function(d) { calendarData[d.date] = { visits: d.visits || 0, hours: d.hours || 0, is_holiday: d.is_holiday || false }; });
+    renderCalendar();
+  }).catch(function() { renderCalendar(); });
+}
+function changeMonth(delta) { currentCalendarDate.setMonth(currentCalendarDate.getMonth() + delta); loadCalendarData(); }
+function renderCalendar() {
+  var year = currentCalendarDate.getFullYear();
+  var month = currentCalendarDate.getMonth();
+  var monthNames = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  document.getElementById('calendar-month-year').textContent = monthNames[month] + ' ' + year;
+  var first = new Date(year, month, 1);
+  var last = new Date(year, month + 1, 0);
+  var daysInMonth = last.getDate();
+  var start = first.getDay() === 0 ? 6 : first.getDay() - 1;
+  var dayNames = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+  var html = '';
+  dayNames.forEach(function(d) { html += '<div class="calendar-day-header">' + d + '</div>'; });
+  for (var i = 0; i < start; i++) html += '<div class="calendar-day other-month"></div>';
+  var today = new Date(); today.setHours(0,0,0,0);
+  for (var day = 1; day <= daysInMonth; day++) {
+    var dateKey = year + '-' + String(month + 1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+    var d = calendarData[dateKey] || { visits: 0, hours: 0, is_holiday: false };
+    var cls = 'calendar-day';
+    var dayOfWeek = new Date(year, month, day).getDay();
+    if (d.is_holiday || dayOfWeek === 0 || dayOfWeek === 6) cls += ' weekend';
+    if (new Date(year, month, day).getTime() === today.getTime()) cls += ' today';
+    if (d.visits > 0 || d.hours > 0) { cls += ' has-visits'; if (d.visits > 5) cls += ' many-visits'; }
+    html += '<div class="' + cls + '" data-date="' + dateKey + '" onclick="showDayEmployees(\'' + dateKey + '\')" title="' + dateKey + ': ' + d.visits + ' посещений"><div class="calendar-day-number">' + day + '</div>' + (d.visits > 0 ? '<div class="calendar-day-visits">' + d.visits + '</div>' : '') + '</div>';
+  }
+  var total = start + daysInMonth;
+  var rest = 7 - (total % 7);
+  if (rest < 7) for (var i = 0; i < rest; i++) html += '<div class="calendar-day other-month"></div>';
+  document.getElementById('calendar-grid').innerHTML = html;
+}
+loadCalendarData();
 
-            detailsHtml += `
-                                </tbody>
-                            </table>
-                        </div>
-                        </div>
-                    </div>
-                </div>
+function showDayEmployees(date) {
+  var modal = document.getElementById('dayModal');
+  var title = document.getElementById('dayModalTitle');
+  var body = document.getElementById('dayModalBody');
+  var dateObj = new Date(date);
+  title.textContent = 'Сотрудники за ' + dateObj.toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  body.innerHTML = '<div class="no-employees">Загрузка...</div>';
+  modal.style.display = 'block';
+  fetch('/api/employees/date/' + date).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.employees && data.employees.length) {
+      var html = '<div class="text-[var(--text-secondary)] mb-3">Всего: ' + (data.total || 0) + '</div><ul class="employees-list">';
+      data.employees.forEach(function(emp) {
+        var ints = Array.isArray(emp.intervals) ? emp.intervals : [];
+        var times = ints.length ? ints.map(function(i) { return (i.start || '') + ' – ' + (i.end || '…'); }).join(', ') : (emp.checkin_time || '') + (emp.checkout_time ? ' – ' + emp.checkout_time : '');
+        html += '<li class="employee-item' + (emp.has_remote ? ' employee-remote' : '') + '"><div class="employee-info"><div class="employee-name">' + escapeHtml(emp.fio || '—') + (emp.has_remote ? ' 🏠' : '') + '</div><div class="employee-meta">' + (emp.username ? '@' + escapeHtml(emp.username) : '') + '</div></div><div class="employee-times">' + times + '</div></li>';
+      });
+      html += '</ul>';
+      body.innerHTML = html;
+    } else body.innerHTML = '<div class="no-employees">В этот день не было посещений</div>';
+  }).catch(function() { body.innerHTML = '<div class="no-employees">Ошибка загрузки</div>'; });
+}
+function closeDayModal() { document.getElementById('dayModal').style.display = 'none'; }
+window.onclick = function(e) { if (e.target.id === 'dayModal') closeDayModal(); };
 
-                <div style="margin-top: 2rem;">
-                    <h3>🕐 Последние сессии работы</h3>
-                    <div style="max-height: 300px; overflow-y: auto;">
-                        <table style="width: 100%; margin-top: 1rem;">
-                            <thead>
-                                <tr><th>Дата</th><th>Приход</th><th>Уход</th><th>Время работы</th></tr>
-                            </thead>
-                            <tbody>
-            `;
-
-            if (data.recent_sessions && data.recent_sessions.length > 0) {
-                data.recent_sessions.forEach(session => {
-                    detailsHtml += `<tr><td>${escapeHtml(session.work_date)}</td><td>${escapeHtml(session.checkin_time)}</td><td>${escapeHtml(session.checkout_time)}</td><td>${formatHoursToHHMM(session.work_hours)}</td></tr>`;
-                });
-            } else {
-                detailsHtml += `<tr><td colspan="4" style="text-align: center;">Нет данных о сессиях работы</td></tr>`;
-            }
-
-            detailsHtml += `
-                            </tbody>
-                        </table>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            detailsDiv.innerHTML = detailsHtml;
-            statsDiv.style.display = 'block';
-
-            // Scroll to employee stats
-            statsDiv.scrollIntoView({ behavior: 'smooth' });
-        }
-
-        // Календарь посещаемости
-        let currentCalendarDate = new Date();
-        let calendarData = {}; // {date: {visits: number, hours: number}}
-
-        // Загружаем данные о посещаемости для календаря
-        async function loadCalendarData() {
-            try {
-                const year = currentCalendarDate.getFullYear();
-                const month = currentCalendarDate.getMonth() + 1; // JavaScript months are 0-based
-                
-                // Загружаем данные для текущего месяца через API
-                const response = await fetch(`/api/analytics/calendar/${year}/${month}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    calendarData = {};
-                    if (data.days && Array.isArray(data.days)) {
-                        data.days.forEach(day => {
-                            calendarData[day.date] = {
-                                visits: day.visits || 0,
-                                hours: day.hours || 0,
-                                is_holiday: day.is_holiday || false
-                            };
-                        });
-                    }
-                } else {
-                    // Fallback: используем данные из dailyVisitsData если они доступны
-                    if (typeof dailyVisitsData !== 'undefined' && dailyVisitsData.length > 0) {
-                        calendarData = {};
-                        dailyVisitsData.forEach(item => {
-                            // Используем дату как есть, без конвертации через toISOString
-                            const dateKey = item.date;
-                            const dateParts = dateKey.split('-');
-                            if (dateParts.length === 3) {
-                                const itemYear = parseInt(dateParts[0]);
-                                const itemMonth = parseInt(dateParts[1]);
-                                // Проверяем, что дата относится к текущему месяцу
-                                if (itemYear === year && itemMonth === month) {
-                                    calendarData[dateKey] = {
-                                        visits: item.visits || 0,
-                                        hours: 0 // Нет данных о часах в dailyVisitsData
-                                    };
-                                }
-                            }
-                        });
-                    }
-                }
-                
-                renderCalendar();
-            } catch (error) {
-                console.error('Error loading calendar data:', error);
-                renderCalendar();
-            }
-        }
-
-        function changeMonth(delta) {
-            currentCalendarDate.setMonth(currentCalendarDate.getMonth() + delta);
-            loadCalendarData();
-        }
-
-        function renderCalendar() {
-            const year = currentCalendarDate.getFullYear();
-            const month = currentCalendarDate.getMonth();
-            
-            // Обновляем заголовок
-            const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-                              'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-            document.getElementById('calendar-month-year').textContent = `${monthNames[month]} ${year}`;
-            
-            // Первый день месяца
-            const firstDay = new Date(year, month, 1);
-            const lastDay = new Date(year, month + 1, 0);
-            const daysInMonth = lastDay.getDate();
-            const startingDayOfWeek = firstDay.getDay();
-            
-            // Корректируем день недели (воскресенье = 0, но нам нужно чтобы понедельник был первым)
-            const adjustedStartingDay = startingDayOfWeek === 0 ? 6 : startingDayOfWeek - 1;
-            
-            // Дни недели
-            const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-            
-            let calendarHTML = '';
-            
-            // Заголовки дней недели
-            dayNames.forEach(day => {
-                calendarHTML += `<div class="calendar-day-header">${day}</div>`;
-            });
-            
-            // Пустые ячейки до первого дня месяца
-            for (let i = 0; i < adjustedStartingDay; i++) {
-                calendarHTML += `<div class="calendar-day other-month"></div>`;
-            }
-            
-            // Дни месяца
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            
-            for (let day = 1; day <= daysInMonth; day++) {
-                const date = new Date(year, month, day);
-                // Формируем dateKey в локальном времени, чтобы избежать смещения из-за UTC
-                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dayData = calendarData[dateKey] || {visits: 0, hours: 0, is_holiday: false};
-                const visits = dayData.visits || 0;
-                const hours = dayData.hours || 0;
-                const isHoliday = dayData.is_holiday || false;
-                const isToday = date.getTime() === today.getTime();
-                
-                let dayClasses = 'calendar-day';
-                if (isToday) dayClasses += ' today';
-                if (isHoliday) dayClasses += ' holiday';
-                if (visits > 0 || hours > 0) {
-                    dayClasses += ' has-visits';
-                    if (visits > 5) dayClasses += ' many-visits';
-                }
-                
-                const titleText = hours > 0 
-                    ? `${dateKey}: ${visits} посещений, ${formatHoursToHHMM(hours)} работы`
-                    : `${dateKey}: ${visits} посещений`;
-                
-                calendarHTML += `
-                    <div class="${dayClasses}" data-date="${dateKey}" onclick="showDayEmployees('${dateKey}')" title="${titleText}">
-                        <div class="calendar-day-number">${day}</div>
-                        ${visits > 0 ? `<div class="calendar-day-visits">${visits}</div>` : ''}
-                    </div>
-                `;
-            }
-            
-            // Пустые ячейки после последнего дня месяца
-            const totalCells = adjustedStartingDay + daysInMonth;
-            const remainingCells = 7 - (totalCells % 7);
-            if (remainingCells < 7) {
-                for (let i = 0; i < remainingCells; i++) {
-                    calendarHTML += `<div class="calendar-day other-month"></div>`;
-                }
-            }
-            
-            document.getElementById('calendar-grid').innerHTML = calendarHTML;
-        }
-
-        // Функции для работы с модальным окном дня
-        async function showDayEmployees(date) {
-            const modal = document.getElementById('dayModal');
-            const modalTitle = document.getElementById('dayModalTitle');
-            const modalBody = document.getElementById('dayModalBody');
-            
-            // Форматируем дату для отображения
-            const dateObj = new Date(date);
-            const dateFormatted = dateObj.toLocaleDateString('ru-RU', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-            });
-            
-            modalTitle.textContent = `Сотрудники за ${dateFormatted}`;
-            modalBody.innerHTML = '<div class="no-employees">Загрузка...</div>';
-            modal.style.display = 'block';
-            
-            try {
-                const response = await fetch(`/api/employees/date/${date}`);
-                if (!response.ok) {
-                    throw new Error('Не удалось загрузить данные');
-                }
-                
-                const data = await response.json();
-                
-                if (data.employees && data.employees.length > 0) {
-                    let html = `<div style="margin-bottom: 1rem; color: var(--muted);">Всего сотрудников: ${data.total}</div>`;
-                    html += '<ul class="employees-list">';
-                    
-                    data.employees.forEach(emp => {
-                        const intervals = Array.isArray(emp.intervals) ? emp.intervals : [];
-                        const hasIntervals = intervals.length > 0;
-                        const hasRemote = emp.has_remote === true;
-
-                        let intervalsHtml = '';
-                        if (hasIntervals) {
-                            intervalsHtml = intervals.map((intv, idx) => {
-                                const label = intv.end ? `${intv.start} – ${intv.end}` : `${intv.start} – …`;
-                                const remoteTag = intv.is_remote ? ' 🏠' : '';
-                                return `<span class="time-badge">${escapeHtml(label)}${remoteTag}</span>`;
-                            }).join(' ');
-                        } else {
-                            intervalsHtml = `
-                                ${emp.checkin_time ? `<span class="time-badge time-checkin">Приход: ${escapeHtml(emp.checkin_time)}</span>` : ''}
-                                ${emp.checkout_time ? `<span class="time-badge time-checkout">Уход: ${escapeHtml(emp.checkout_time)}</span>` : ''}
-                                ${!emp.checkin_time && !emp.checkout_time ? '<span style="color: var(--muted);">Нет данных</span>' : ''}
-                            `;
-                        }
-
-                        html += `
-                            <li class="employee-item${hasRemote ? ' employee-remote' : ''}">
-                                <div class="employee-info">
-                                    <div class="employee-name">${escapeHtml(emp.fio || 'Не указано')}${hasRemote ? ' <span title="Удалённая работа">🏠</span>' : ''}</div>
-                                    <div class="employee-meta">
-                                        ${emp.username ? `@${escapeHtml(emp.username)}` : 'Без username'}
-                                        ${emp.checkins_count > 1 ? ` • ${emp.checkins_count} приходов` : ''}
-                                    </div>
-                                </div>
-                                <div class="employee-times">
-                                    ${hasIntervals ? `<div style="margin-bottom: 0.35rem; color: var(--muted); font-size: 0.9rem;">Интервалы за день</div>` : ''}
-                                    ${intervalsHtml}
-                                </div>
-                            </li>
-                        `;
-                    });
-                    
-                    html += '</ul>';
-                    modalBody.innerHTML = html;
-                } else {
-                    modalBody.innerHTML = '<div class="no-employees">В этот день не было посещений</div>';
-                }
-            } catch (error) {
-                console.error('Error loading employees:', error);
-                modalBody.innerHTML = '<div class="no-employees">Ошибка при загрузке данных</div>';
-            }
-        }
-
-        function closeDayModal() {
-            document.getElementById('dayModal').style.display = 'none';
-        }
-
-        // Закрытие модального окна при клике вне его
-        window.onclick = function(event) {
-            const modal = document.getElementById('dayModal');
-            if (event.target == modal) {
-                closeDayModal();
-            }
-        }
-
-        // Инициализация календаря при загрузке страницы
-        loadCalendarData();
-
-        // Функции экспорта отчета
-        async function exportReport(period) {
-            const statusDiv = document.getElementById('export-status');
-            statusDiv.style.display = 'block';
-            statusDiv.style.background = '#fff3cd';
-            statusDiv.style.color = '#856404';
-            statusDiv.textContent = '⏳ Генерация отчета...';
-            
-            try {
-                const response = await fetch(`/api/export/pivot?period=${period}&format=xlsx`, {
-                    method: 'GET',
-                    credentials: 'include'
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`Ошибка: ${response.status} ${response.statusText}`);
-                }
-                
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `отчет_${period}_${new Date().toISOString().split('T')[0]}.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-                
-                statusDiv.style.background = '#d4edda';
-                statusDiv.style.color = '#155724';
-                statusDiv.textContent = '✅ Отчет успешно скачан!';
-                
-                setTimeout(() => {
-                    statusDiv.style.display = 'none';
-                }, 3000);
-            } catch (error) {
-                statusDiv.style.background = '#f8d7da';
-                statusDiv.style.color = '#721c24';
-                statusDiv.textContent = `❌ Ошибка: ${error.message}`;
-            }
-        }
-
-        async function exportReportByDate() {
-            const startDate = document.getElementById('export-start-date').value;
-            const endDate = document.getElementById('export-end-date').value;
-            
-            if (!startDate || !endDate) {
-                alert('Пожалуйста, выберите обе даты');
-                return;
-            }
-            
-            if (new Date(startDate) > new Date(endDate)) {
-                alert('Дата начала не может быть позже даты окончания');
-                return;
-            }
-            
-            const statusDiv = document.getElementById('export-status');
-            statusDiv.style.display = 'block';
-            statusDiv.style.background = '#fff3cd';
-            statusDiv.style.color = '#856404';
-            statusDiv.textContent = '⏳ Генерация отчета...';
-            
-            try {
-                const response = await fetch(`/api/export/pivot?start_date=${startDate}&end_date=${endDate}&format=xlsx`, {
-                    method: 'GET',
-                    credentials: 'include'
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`Ошибка: ${response.status} ${response.statusText}`);
-                }
-                
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `отчет_${startDate}_${endDate}.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-                
-                statusDiv.style.background = '#d4edda';
-                statusDiv.style.color = '#155724';
-                statusDiv.textContent = '✅ Отчет успешно скачан!';
-                
-                setTimeout(() => {
-                    statusDiv.style.display = 'none';
-                }, 3000);
-            } catch (error) {
-                statusDiv.style.background = '#f8d7da';
-                statusDiv.style.color = '#721c24';
-                statusDiv.textContent = `❌ Ошибка: ${error.message}`;
-            }
-        }
-    </script>
-    <script>
-        // Register service worker for PWA
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/static/service-worker.js')
-                    .then((registration) => {
-                        console.log('ServiceWorker registered:', registration);
-                    })
-                    .catch((error) => {
-                        console.log('ServiceWorker registration failed:', error);
-                    });
-            });
-        }
-    </script>
-</body>
-</html>
+function exportReport(period, format) {
+  var status = document.getElementById('export-status');
+  status.classList.remove('hidden');
+  status.style.background = 'var(--warning-muted)';
+  status.style.color = 'var(--warning)';
+  status.textContent = 'Генерация…';
+  fetch('/api/export/pivot?period=' + period + '&format=' + format, { credentials: 'include' }).then(function(r) {
+    if (!r.ok) throw new Error(r.statusText);
+    return r.blob();
+  }).then(function(blob) {
+    var a = document.createElement('a');
+    a.href = window.URL.createObjectURL(blob);
+    a.download = 'отчет_' + period + '.' + format;
+    a.click();
+    window.URL.revokeObjectURL(a.href);
+    status.style.background = 'var(--success-muted)';
+    status.style.color = 'var(--success)';
+    status.textContent = 'Скачан';
+    setTimeout(function() { status.classList.add('hidden'); }, 3000);
+  }).catch(function(e) {
+    status.style.background = 'var(--danger-muted)';
+    status.style.color = 'var(--danger)';
+    status.textContent = 'Ошибка: ' + e.message;
+  });
+}
+function exportReportByDate(format) {
+  var start = document.getElementById('export-start-date').value;
+  var end = document.getElementById('export-end-date').value;
+  if (!start || !end) { alert('Укажите обе даты'); return; }
+  if (new Date(start) > new Date(end)) { alert('Дата начала не может быть позже окончания'); return; }
+  var status = document.getElementById('export-status');
+  status.classList.remove('hidden');
+  status.style.background = 'var(--warning-muted)';
+  status.style.color = 'var(--warning)';
+  status.textContent = 'Генерация…';
+  fetch('/api/export/pivot?start_date=' + start + '&end_date=' + end + '&format=' + format, { credentials: 'include' }).then(function(r) {
+    if (!r.ok) throw new Error(r.statusText);
+    return r.blob();
+  }).then(function(blob) {
+    var a = document.createElement('a');
+    a.href = window.URL.createObjectURL(blob);
+    a.download = 'отчет_' + start + '_' + end + '.' + format;
+    a.click();
+    window.URL.revokeObjectURL(a.href);
+    status.style.background = 'var(--success-muted)';
+    status.style.color = 'var(--success)';
+    status.textContent = 'Скачан';
+    setTimeout(function() { status.classList.add('hidden'); }, 3000);
+  }).catch(function(e) {
+    status.style.background = 'var(--danger-muted)';
+    status.style.color = 'var(--danger)';
+    status.textContent = 'Ошибка: ' + e.message;
+  });
+}
+</script>
+{% endblock %}

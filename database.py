@@ -61,9 +61,18 @@ class Database:
                     full_name  TEXT,
                     location   TEXT NOT NULL,
                     action     TEXT NOT NULL,
-                    ts         TEXT NOT NULL
+                    ts         TEXT NOT NULL,
+                    event_source TEXT NOT NULL DEFAULT 'unknown'
                 )
             ''')
+
+            # Backward-compatible migration for existing DBs
+            cursor.execute("PRAGMA table_info(events)")
+            event_columns = {row[1] for row in cursor.fetchall()}
+            if "event_source" not in event_columns:
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN event_source TEXT NOT NULL DEFAULT 'unknown'"
+                )
 
             # Meta table (key/value)
             cursor.execute('''
@@ -487,16 +496,26 @@ class Database:
             return is_valid
 
     # Event operations
-    def create_event(self, user_id: int, location: str, action: str,
-                    username: Optional[str] = None, full_name: Optional[str] = None) -> int:
+    def create_event(
+        self,
+        user_id: int,
+        location: str,
+        action: str,
+        username: Optional[str] = None,
+        full_name: Optional[str] = None,
+        event_source: str = "unknown",
+    ) -> int:
         """Create new event"""
         # Сохраняем время в UTC с timezone info
         now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO events (user_id, username, full_name, location, action, ts) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, username, full_name, location, action, now)
+                """
+                INSERT INTO events (user_id, username, full_name, location, action, ts, event_source)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, username, full_name, location, action, now, event_source)
             )
             conn.commit()
             return cursor.lastrowid
@@ -1681,6 +1700,24 @@ class Database:
             avg_row = cursor.fetchone()
             result['avg_work_time'] = avg_row[0] if avg_row and avg_row[0] else 0.0
 
+            cursor.execute(
+                """
+                SELECT
+                    COUNT(CASE WHEN action = 'out' AND event_source = 'qr' THEN 1 END) AS checkout_qr,
+                    COUNT(CASE WHEN action = 'out' AND event_source = 'bot_reminder' AND COALESCE(location, '') != 'remote' THEN 1 END) AS checkout_reminder_office,
+                    COUNT(CASE WHEN action = 'out' AND event_source = 'bot_remote' THEN 1 END) AS checkout_bot_remote,
+                    COUNT(CASE WHEN action = 'out' AND event_source = 'bot_reminder' AND location = 'remote' THEN 1 END) AS checkout_reminder_remote
+                FROM events
+                WHERE user_id = ? AND ts >= ? AND ts <= ?
+                """,
+                (tg_user_id, start_dt, end_dt),
+            )
+            source_row = cursor.fetchone()
+            result["checkout_qr"] = source_row["checkout_qr"] if source_row else 0
+            result["checkout_reminder_office"] = source_row["checkout_reminder_office"] if source_row else 0
+            result["checkout_bot_remote"] = source_row["checkout_bot_remote"] if source_row else 0
+            result["checkout_reminder_remote"] = source_row["checkout_reminder_remote"] if source_row else 0
+
             return result
 
     def get_pivot_report(self, start_date: str, end_date: str) -> Dict[str, Any]:
@@ -1782,6 +1819,127 @@ class Database:
                 "data": data,
                 "totals": totals
             }
+
+    def get_checkout_source_summary(self, start_date: str, end_date: str) -> Dict[int, Dict[str, int]]:
+        """Return checkout source counters by employee id for a period.
+
+        Office: QR and reminder (location != 'remote').
+        Remote: bot (bot_remote) and reminder (location = 'remote').
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT
+                    p.id AS employee_id,
+                    SUM(CASE WHEN e.action = 'out' AND e.event_source = 'qr' THEN 1 ELSE 0 END) AS checkout_qr,
+                    SUM(CASE WHEN e.action = 'out' AND e.event_source = 'bot_reminder' AND COALESCE(e.location, '') != 'remote' THEN 1 ELSE 0 END) AS checkout_reminder_office,
+                    SUM(CASE WHEN e.action = 'out' AND e.event_source = 'bot_remote' THEN 1 ELSE 0 END) AS checkout_bot_remote,
+                    SUM(CASE WHEN e.action = 'out' AND e.event_source = 'bot_reminder' AND e.location = 'remote' THEN 1 ELSE 0 END) AS checkout_reminder_remote
+                FROM people p
+                LEFT JOIN events e
+                    ON e.user_id = p.tg_user_id
+                    AND e.ts >= ? AND e.ts <= ?
+                GROUP BY p.id
+                """,
+                (f"{start_date}T00:00:00", f"{end_date}T23:59:59"),
+            )
+            result: Dict[int, Dict[str, int]] = {}
+            for row in cursor.fetchall():
+                result[row["employee_id"]] = {
+                    "checkout_qr": int(row["checkout_qr"] or 0),
+                    "checkout_reminder_office": int(row["checkout_reminder_office"] or 0),
+                    "checkout_bot_remote": int(row["checkout_bot_remote"] or 0),
+                    "checkout_reminder_remote": int(row["checkout_reminder_remote"] or 0),
+                }
+            return result
+
+    def get_checkout_hours_summary(self, start_date: str, end_date: str) -> Dict[int, Dict[str, float]]:
+        """Return work hours by checkout type per employee for a period.
+
+        Keys: hours_qr, hours_reminder_office, hours_bot_remote, hours_reminder_remote.
+        Lets you see 'real' hours (QR + bot_remote) vs reminder-based hours.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT DISTINCT p.id, p.tg_user_id
+                FROM people p
+                WHERE EXISTS (
+                    SELECT 1 FROM events e
+                    WHERE e.user_id = p.tg_user_id AND e.ts >= ? AND e.ts <= ?
+                )
+            """, (f"{start_date}T00:00:00", f"{end_date}T23:59:59"))
+            employees = [dict(row) for row in cursor.fetchall()]
+            tg_id_to_employee_id = {emp["tg_user_id"]: emp["id"] for emp in employees}
+            tg_ids = list(tg_id_to_employee_id.keys())
+
+            result: Dict[int, Dict[str, float]] = {
+                emp["id"]: {
+                    "hours_qr": 0.0,
+                    "hours_reminder_office": 0.0,
+                    "hours_bot_remote": 0.0,
+                    "hours_reminder_remote": 0.0,
+                }
+                for emp in employees
+            }
+
+            if not tg_ids:
+                return result
+
+            placeholders = ",".join("?" * len(tg_ids))
+            cursor.execute(
+                f"""
+                SELECT user_id, action, ts, event_source, location
+                FROM events
+                WHERE user_id IN ({placeholders}) AND ts >= ? AND ts <= ?
+                ORDER BY user_id, ts
+                """,
+                (*tg_ids, f"{start_date}T00:00:00", f"{end_date}T23:59:59"),
+            )
+            from collections import defaultdict
+            user_day_events = defaultdict(list)
+            for row in cursor.fetchall():
+                user_day_events[(row[0], row[2][:10])].append({
+                    "action": row[1],
+                    "ts": row[2],
+                    "event_source": row[3] or "unknown",
+                    "location": row[4] or "",
+                })
+
+            for (tg_uid, day_str), events_list in user_day_events.items():
+                employee_id = tg_id_to_employee_id.get(tg_uid)
+                if employee_id is None:
+                    continue
+                events_list.sort(key=lambda e: e["ts"])
+                checkin_time = None
+                for ev in events_list:
+                    if ev["action"] == "in":
+                        try:
+                            checkin_time = datetime.fromisoformat(ev["ts"].replace("Z", "+00:00"))
+                        except Exception:
+                            checkin_time = None
+                    elif ev["action"] == "out" and checkin_time is not None:
+                        try:
+                            checkout_time = datetime.fromisoformat(ev["ts"].replace("Z", "+00:00"))
+                            secs = (checkout_time - checkin_time).total_seconds()
+                            hours = secs / 3600.0
+                            src = ev.get("event_source") or "unknown"
+                            loc = ev.get("location") or ""
+                            if src == "qr":
+                                result[employee_id]["hours_qr"] += hours
+                            elif src == "bot_reminder":
+                                if loc == "remote":
+                                    result[employee_id]["hours_reminder_remote"] += hours
+                                else:
+                                    result[employee_id]["hours_reminder_office"] += hours
+                            elif src == "bot_remote":
+                                result[employee_id]["hours_bot_remote"] += hours
+                        except Exception:
+                            pass
+                        checkin_time = None
+
+            return result
 
     def compare_periods(self, period1_start: str, period1_end: str, period2_start: str, period2_end: str) -> Dict[str, Any]:
         """

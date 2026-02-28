@@ -1,678 +1,225 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Управление пользователями - Система учета</title>
-    <style>
-        :root {
-            --bg: #0f172a;
-            --card: #111827;
-            --text: #e5e7eb;
-            --muted: #94a3b8;
-            --accent: #0ea5e9;
-            --accent-hover: #0284c7;
-            --border: #1f2937;
-            --shadow: 0 10px 30px rgba(0,0,0,0.35);
-            --success: #22c55e;
-            --danger: #ef4444;
-            --warn: #f59e0b;
-        }
-        body {
-            font-family: Arial, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        .nav {
-            margin-bottom: 2rem;
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-        }
-        .nav a {
-            padding: 0.5rem 1rem;
-            background: var(--accent);
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            box-shadow: 0 4px 10px rgba(14,165,233,0.25);
-            transition: background 0.15s ease, transform 0.1s ease;
-        }
-        .nav a:hover {
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-        }
-        .section {
-            background: var(--card);
-            border-radius: 12px;
-            box-shadow: var(--shadow);
-            padding: 1.5rem;
-            border: 1px solid var(--border);
-            margin-bottom: 2rem;
-        }
-        .section h2 {
-            margin-top: 0;
-            color: var(--text);
-        }
-        .table-wrapper {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            margin: 1rem 0;
-        }
-        table {
-            width: 100%;
-            min-width: 800px;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        th, td {
-            padding: 0.75rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-        }
-        th {
-            background-color: #0b1220;
-            font-weight: 600;
-            color: var(--text);
-        }
-        .action-btn {
-            padding: 0.25rem 0.5rem;
-            background: var(--success);
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            box-shadow: 0 3px 8px rgba(34,197,94,0.25);
-        }
-        .action-btn:hover {
-            background: #16a34a;
-        }
-        .delete-btn {
-            background: var(--danger);
-        }
-        .delete-btn:hover {
-            background: #b91c1c;
-        }
-        .status-active {
-            color: var(--success);
-        }
-        .status-inactive {
-            color: var(--danger);
-        }
-        .role-badge {
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            font-weight: bold;
-        }
-        .role-admin {
-            background: var(--danger);
-            color: white;
-        }
-        .role-manager {
-            background: var(--warn);
-            color: #1f2937;
-        }
-        .role-hr {
-            background: #17a2b8;
-            color: white;
-        }
-        .role-user {
-            background: #6c757d;
-            color: white;
-        }
-        .no-data {
-            text-align: center;
-            color: var(--muted);
-            padding: 2rem;
-        }
-        .add-user-btn {
-            display: inline-block;
-            padding: 0.75rem 1.5rem;
-            background: var(--success);
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            margin-bottom: 1rem;
-            box-shadow: 0 4px 10px rgba(34,197,94,0.25);
-        }
-        .add-user-btn:hover {
-            background: #16a34a;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.7);
-            overflow: auto;
-        }
-        .modal-content {
-            background-color: var(--card);
-            margin: 5% auto;
-            padding: 2rem;
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            width: 90%;
-            max-width: 600px;
-            box-shadow: var(--shadow);
-        }
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1.5rem;
-        }
-        .close {
-            color: var(--muted);
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        .close:hover {
-            color: var(--text);
-        }
-        .form-group {
-            margin-bottom: 1rem;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: var(--text);
-            font-weight: 600;
-        }
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: 0.75rem;
-            background: #0b1220;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 1rem;
-        }
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-        .form-actions {
-            display: flex;
-            gap: 1rem;
-            justify-content: flex-end;
-            margin-top: 1.5rem;
-        }
-        .btn {
-            padding: 0.75rem 1.5rem;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 600;
-            transition: all 0.15s ease;
-        }
-        .btn-primary {
-            background: var(--accent);
-            color: white;
-        }
-        .btn-primary:hover {
-            background: var(--accent-hover);
-        }
-        .btn-secondary {
-            background: var(--muted);
-            color: white;
-        }
-        .btn-secondary:hover {
-            background: #64748b;
-        }
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .checkbox-group input[type="checkbox"] {
-            width: auto;
-        }
-        .password-input-group {
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
-        }
-        .password-input-group input {
-            flex: 1;
-        }
-        .generate-password-btn {
-            padding: 0.75rem 1rem;
-            background: var(--warn);
-            color: #1f2937;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            font-weight: 600;
-            white-space: nowrap;
-            transition: all 0.15s ease;
-        }
-        .generate-password-btn:hover {
-            background: #f59e0b;
-        }
-        .password-display {
-            margin-top: 0.5rem;
-            padding: 0.5rem;
-            background: #0b1220;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-family: monospace;
-            font-size: 0.9rem;
-            color: var(--success);
-            display: none;
-        }
-        /* Mobile styles */
-        @media (max-width: 768px) {
-            body {
-                padding: 1rem;
-            }
-            .container {
-                max-width: 100%;
-            }
-            .header h1 {
-                font-size: 1.5rem;
-            }
-            .nav {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-            .nav a {
-                width: 100%;
-                text-align: center;
-                padding: 0.75rem;
-                min-height: 44px;
-            }
-            .section {
-                padding: 1rem;
-                margin-bottom: 1rem;
-            }
-            .section h2 {
-                font-size: 1.1rem;
-            }
-            table {
-                display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-            th, td {
-                padding: 0.5rem;
-                font-size: 0.85rem;
-                white-space: nowrap;
-            }
-            .action-btn, .delete-btn {
-                padding: 0.5rem 0.75rem;
-                min-height: 44px;
-                display: inline-block;
-                margin: 0.25rem 0;
-            }
-            .form-group {
-                margin-bottom: 1rem;
-            }
-            .form-group input, .form-group select {
-                width: 100%;
-                padding: 0.75rem;
-                min-height: 44px;
-                font-size: 16px; /* Prevents zoom on iOS */
-            }
-            .form-group button {
-                width: 100%;
-                padding: 0.75rem;
-                min-height: 44px;
-            }
-        }
-        @media (max-width: 480px) {
-            body {
-                padding: 0.5rem;
-            }
-            .section {
-                padding: 0.75rem;
-            }
-            .header h1 {
-                font-size: 1.25rem;
-            }
-            th, td {
-                padding: 0.4rem;
-                font-size: 0.8rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>👥 Управление пользователями</h1>
-        </div>
+{% extends "base.html" %}
+{% block title %}Пользователи — Система учета{% endblock %}
+{% block content %}
+<div class="page-header flex flex-wrap items-center justify-between gap-4">
+  <div>
+    <h1 class="page-title">Пользователи</h1>
+    <p class="page-subtitle">Веб-пользователи и роли</p>
+  </div>
+  <button type="button" class="btn btn-primary" onclick="alert('Функционал добавления пользователей будет реализован позже')">➕ Добавить</button>
+</div>
 
-        <div class="nav">
-            <a href="/">Терминал</a>
-            <a href="/admin">Админ панель</a>
-            <a href="/analytics">Аналитика</a>
-            <a href="/logout">Выход</a>
-        </div>
+<div class="card mb-6">
+  <h2 class="card-header">Пользователи системы</h2>
+  {% if users %}
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Логин</th>
+          <th>ФИО</th>
+          <th>Роль</th>
+          <th>Отдел</th>
+          <th>Должность</th>
+          <th>Статус</th>
+          <th>Последний вход</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td class="text-[var(--text-muted)]">{{ user.id }}</td>
+          <td class="font-medium">{{ user.username }}</td>
+          <td>{{ user.full_name or '—' }}</td>
+          <td>
+            <span class="badge {% if user.role == 'admin' %}badge-danger{% elif user.role == 'manager' %}badge-warning{% elif user.role == 'hr' %}badge-primary{% else %}badge-neutral{% endif %}">
+              {{ user.role|title }}
+            </span>
+          </td>
+          <td class="text-[var(--text-secondary)]">{{ user.department or '—' }}</td>
+          <td class="text-[var(--text-secondary)]">{{ user.position or '—' }}</td>
+          <td>
+            <span class="badge {% if user.is_active %}badge-success{% else %}badge-danger{% endif %}">
+              {{ 'Активен' if user.is_active else 'Заблокирован' }}
+            </span>
+          </td>
+          <td class="text-[var(--text-secondary)] text-sm">
+            {% if user.last_login %}{{ user.last_login[:19].replace('T', ' ') }}{% else %}Никогда{% endif %}
+          </td>
+          <td>
+            <div class="flex items-center gap-1">
+              <button type="button" class="btn btn-ghost btn-sm" onclick="editUser({{ user.id }})" title="Редактировать">✏️</button>
+              <button type="button" class="btn btn-ghost btn-sm text-[var(--danger)]" onclick="alert('Функционал удаления будет реализован позже')" title="Удалить">🗑️</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p class="empty-state-title">Пользователи не найдены</p>
+  </div>
+  {% endif %}
+</div>
 
-        <div class="section">
-            <h2>Пользователи системы</h2>
-            <a href="#" class="add-user-btn" onclick="alert('Функционал добавления пользователей будет реализован позже')">➕ Добавить пользователя</a>
+<div class="card">
+  <h2 class="card-header">Роли</h2>
+  {% if roles %}
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Название</th>
+          <th>Отображаемое имя</th>
+          <th>Описание</th>
+          <th>Права</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for role in roles %}
+        <tr>
+          <td class="font-medium">{{ role.name }}</td>
+          <td>{{ role.display_name }}</td>
+          <td class="text-[var(--text-secondary)]">{{ role.description }}</td>
+          <td class="text-sm text-[var(--text-muted)]">{{ role.permissions }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state"><p>Роли не найдены</p></div>
+  {% endif %}
+</div>
 
-            {% if users %}
-            <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Логин</th>
-                        <th>ФИО</th>
-                        <th>Роль</th>
-                        <th>Отдел</th>
-                        <th>Должность</th>
-                        <th>Статус</th>
-                        <th>Последний вход</th>
-                        <th>Действия</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for user in users %}
-                    <tr>
-                        <td>{{ user.id }}</td>
-                        <td>{{ user.username }}</td>
-                        <td>{{ user.full_name or 'Не указано' }}</td>
-                        <td>
-                            <span class="role-badge role-{{ user.role }}">
-                                {{ user.role|title }}
-                            </span>
-                        </td>
-                        <td>{{ user.department or 'Не указано' }}</td>
-                        <td>{{ user.position or 'Не указано' }}</td>
-                        <td>
-                            <span class="status-{{ 'active' if user.is_active else 'inactive' }}">
-                                {{ 'Активен' if user.is_active else 'Заблокирован' }}
-                            </span>
-                        </td>
-                        <td>
-                            {% if user.last_login %}
-                                {{ user.last_login[:19].replace('T', ' ') }}
-                            {% else %}
-                                Никогда
-                            {% endif %}
-                        </td>
-                        <td>
-                            <a href="#" class="action-btn" onclick="editUser({{ user.id }})">✏️</a>
-                            <a href="#" class="action-btn delete-btn" onclick="alert('Функционал удаления будет реализован позже')">🗑️</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            </div>
-            {% else %}
-            <div class="no-data">
-                <p>Пользователи не найдены</p>
-            </div>
-            {% endif %}
-        </div>
-
-        <div class="section">
-            <h2>Роли пользователей</h2>
-            {% if roles %}
-            <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Название</th>
-                        <th>Отображаемое имя</th>
-                        <th>Описание</th>
-                        <th>Права доступа</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for role in roles %}
-                    <tr>
-                        <td>{{ role.name }}</td>
-                        <td>{{ role.display_name }}</td>
-                        <td>{{ role.description }}</td>
-                        <td>{{ role.permissions }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            </div>
-            {% else %}
-            <div class="no-data">
-                <p>Роли не найдены</p>
-            </div>
-            {% endif %}
-        </div>
+<!-- Modal редактирования -->
+<div id="editUserModal" class="modal-backdrop" style="display: none;">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 class="modal-title">Редактировать пользователя</h2>
+      <button type="button" class="modal-close" onclick="closeEditModal()" aria-label="Закрыть">&times;</button>
     </div>
-
-    <!-- Modal для редактирования пользователя -->
-    <div id="editUserModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Редактировать пользователя</h2>
-                <span class="close" onclick="closeEditModal()">&times;</span>
-            </div>
-            <form id="editUserForm">
-                <input type="hidden" id="edit_user_id" name="user_id">
-                
-                <div class="form-group">
-                    <label for="edit_username">Логин:</label>
-                    <input type="text" id="edit_username" name="username" readonly style="background: #1f2937; color: var(--muted);">
-                </div>
-                
-                <div class="form-group">
-                    <label for="edit_full_name">ФИО:</label>
-                    <input type="text" id="edit_full_name" name="full_name">
-                </div>
-                
-                <div class="form-group">
-                    <label for="edit_role">Роль:</label>
-                    <select id="edit_role" name="role">
-                        {% for role in roles %}
-                        <option value="{{ role.name }}">{{ role.display_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="edit_department">Отдел:</label>
-                    <input type="text" id="edit_department" name="department">
-                </div>
-                
-                <div class="form-group">
-                    <label for="edit_position">Должность:</label>
-                    <input type="text" id="edit_position" name="position">
-                </div>
-                
-                <div class="form-group">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="edit_is_active" name="is_active">
-                        <label for="edit_is_active" style="margin: 0;">Активен</label>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="edit_password">Новый пароль (оставьте пустым, чтобы не менять):</label>
-                    <div class="password-input-group">
-                        <input type="password" id="edit_password" name="password" placeholder="Оставьте пустым для сохранения текущего">
-                        <button type="button" class="generate-password-btn" onclick="generatePassword()">🎲 Сгенерировать</button>
-                    </div>
-                    <div id="generated_password_display" class="password-display"></div>
-                </div>
-                
-                <div class="form-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
-                    <button type="submit" class="btn btn-primary">Сохранить</button>
-                </div>
-            </form>
+    <form id="editUserForm">
+      <input type="hidden" id="edit_user_id" name="user_id">
+      <div class="modal-body">
+        <div class="form-group mb-4">
+          <label for="edit_username" class="block text-sm font-medium mb-1">Логин</label>
+          <input type="text" id="edit_username" name="username" class="input bg-[var(--bg-elevated)]" readonly>
         </div>
-    </div>
+        <div class="form-group mb-4">
+          <label for="edit_full_name" class="block text-sm font-medium mb-1">ФИО</label>
+          <input type="text" id="edit_full_name" name="full_name" class="input">
+        </div>
+        <div class="form-group mb-4">
+          <label for="edit_role" class="block text-sm font-medium mb-1">Роль</label>
+          <select id="edit_role" name="role" class="input">
+            {% for role in roles %}
+            <option value="{{ role.name }}">{{ role.display_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group mb-4">
+          <label for="edit_department" class="block text-sm font-medium mb-1">Отдел</label>
+          <input type="text" id="edit_department" name="department" class="input">
+        </div>
+        <div class="form-group mb-4">
+          <label for="edit_position" class="block text-sm font-medium mb-1">Должность</label>
+          <input type="text" id="edit_position" name="position" class="input">
+        </div>
+        <div class="form-group mb-4 flex items-center gap-2">
+          <input type="checkbox" id="edit_is_active" name="is_active" class="rounded">
+          <label for="edit_is_active" class="text-sm">Активен</label>
+        </div>
+        <div class="form-group mb-4">
+          <label for="edit_password" class="block text-sm font-medium mb-1">Новый пароль (пусто — не менять)</label>
+          <div class="flex gap-2">
+            <input type="password" id="edit_password" name="password" class="input flex-1" placeholder="Оставьте пустым">
+            <button type="button" class="btn btn-outline" onclick="generatePassword()">🎲 Сгенерировать</button>
+          </div>
+          <div id="generated_password_display" class="mt-2 p-2 rounded-lg bg-[var(--bg-elevated)] text-sm text-[var(--success)] font-mono hidden"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeEditModal()">Отмена</button>
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
 
-    <script>
-        function generatePassword() {
-            // Генерируем случайный пароль длиной 12 символов
-            // Используем буквы (верхний и нижний регистр), цифры и специальные символы
-            const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-            let password = '';
-            
-            // Гарантируем наличие хотя бы одной буквы верхнего регистра, нижнего регистра, цифры и спецсимвола
-            password += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)];
-            password += 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)];
-            password += '0123456789'[Math.floor(Math.random() * 10)];
-            password += '!@#$%^&*'[Math.floor(Math.random() * 8)];
-            
-            // Заполняем остальные символы случайными из полного набора
-            for (let i = password.length; i < 12; i++) {
-                password += charset[Math.floor(Math.random() * charset.length)];
-            }
-            
-            // Перемешиваем символы для случайности
-            password = password.split('').sort(() => Math.random() - 0.5).join('');
-            
-            // Заполняем поле пароля
-            const passwordInput = document.getElementById('edit_password');
-            passwordInput.type = 'text'; // Временно показываем пароль
-            passwordInput.value = password;
-            
-            // Показываем сгенерированный пароль
-            const displayDiv = document.getElementById('generated_password_display');
-            displayDiv.textContent = 'Сгенерированный пароль: ' + password;
-            displayDiv.style.display = 'block';
-            
-            // Через 5 секунд скрываем пароль обратно
-            setTimeout(() => {
-                passwordInput.type = 'password';
-                displayDiv.style.display = 'none';
-            }, 5000);
-        }
-
-        async function editUser(userId) {
-            try {
-                const response = await fetch(`/api/user/${userId}`, {
-                    headers: {
-                        {% if csrf_token %}
-                        'X-CSRF-Token': '{{ csrf_token }}',
-                        {% endif %}
-                    }
-                });
-                if (!response.ok) {
-                    throw new Error('Не удалось загрузить данные пользователя');
-                }
-                
-                const user = await response.json();
-                
-                // Заполняем форму
-                document.getElementById('edit_user_id').value = user.id;
-                document.getElementById('edit_username').value = user.username || '';
-                document.getElementById('edit_full_name').value = user.full_name || '';
-                document.getElementById('edit_role').value = user.role || 'user';
-                document.getElementById('edit_department').value = user.department || '';
-                document.getElementById('edit_position').value = user.position || '';
-                document.getElementById('edit_is_active').checked = user.is_active !== 0;
-                document.getElementById('edit_password').value = '';
-                document.getElementById('edit_password').type = 'password';
-                
-                // Скрываем поле сгенерированного пароля
-                document.getElementById('generated_password_display').style.display = 'none';
-                
-                // Показываем модальное окно
-                document.getElementById('editUserModal').style.display = 'block';
-            } catch (error) {
-                console.error('Error loading user:', error);
-                alert('Ошибка при загрузке данных пользователя');
-            }
-        }
-
-        function closeEditModal() {
-            document.getElementById('editUserModal').style.display = 'none';
-            document.getElementById('editUserForm').reset();
-            // Скрываем поле сгенерированного пароля
-            document.getElementById('generated_password_display').style.display = 'none';
-            // Возвращаем тип поля пароля обратно на password
-            const passwordInput = document.getElementById('edit_password');
-            passwordInput.type = 'password';
-        }
-
-        // Закрытие модального окна при клике вне его
-        window.onclick = function(event) {
-            const modal = document.getElementById('editUserModal');
-            if (event.target == modal) {
-                closeEditModal();
-            }
-        }
-
-        // Обработка отправки формы
-        document.getElementById('editUserForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const userId = document.getElementById('edit_user_id').value;
-            const formData = new FormData(e.target);
-            
-            // Собираем данные для отправки
-            const data = {
-                full_name: formData.get('full_name') || null,
-                role: formData.get('role') || null,
-                department: formData.get('department') || null,
-                position: formData.get('position') || null,
-                is_active: document.getElementById('edit_is_active').checked,
-                password: formData.get('password') || null
-            };
-            
-            // Удаляем пустые поля
-            Object.keys(data).forEach(key => {
-                if (data[key] === '' || data[key] === null) {
-                    delete data[key];
-                }
-            });
-            
-            // Если пароль пустой, не отправляем его
-            if (!data.password || data.password.trim() === '') {
-                delete data.password;
-            }
-            
-            try {
-                const response = await fetch(`/api/user/${userId}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        {% if csrf_token %}
-                        'X-CSRF-Token': '{{ csrf_token }}',
-                        {% endif %}
-                    },
-                    body: JSON.stringify(data)
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Не удалось обновить пользователя');
-                }
-                
-                alert('Пользователь успешно обновлен');
-                closeEditModal();
-                location.reload(); // Перезагружаем страницу для отображения изменений
-            } catch (error) {
-                console.error('Error updating user:', error);
-                alert('Ошибка при обновлении пользователя: ' + error.message);
-            }
-        });
-    </script>
-</body>
-</html>
+<script>
+function generatePassword() {
+  var charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  var password = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)] + 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)] + '0123456789'[Math.floor(Math.random() * 10)] + '!@#$%^&*'[Math.floor(Math.random() * 8)];
+  for (var i = password.length; i < 12; i++) password += charset[Math.floor(Math.random() * charset.length)];
+  password = password.split('').sort(function() { return Math.random() - 0.5; }).join('');
+  var input = document.getElementById('edit_password');
+  input.type = 'text';
+  input.value = password;
+  var display = document.getElementById('generated_password_display');
+  display.textContent = 'Пароль: ' + password;
+  display.classList.remove('hidden');
+  setTimeout(function() { input.type = 'password'; display.classList.add('hidden'); }, 5000);
+}
+async function editUser(userId) {
+  try {
+    var response = await fetch('/api/user/' + userId, { credentials: 'include', headers: { 'X-CSRF-Token': '{{ csrf_token }}' } });
+    if (!response.ok) throw new Error('Не удалось загрузить данные');
+    var user = await response.json();
+    document.getElementById('edit_user_id').value = user.id;
+    document.getElementById('edit_username').value = user.username || '';
+    document.getElementById('edit_full_name').value = user.full_name || '';
+    document.getElementById('edit_role').value = user.role || 'user';
+    document.getElementById('edit_department').value = user.department || '';
+    document.getElementById('edit_position').value = user.position || '';
+    document.getElementById('edit_is_active').checked = user.is_active !== 0;
+    document.getElementById('edit_password').value = '';
+    document.getElementById('edit_password').type = 'password';
+    document.getElementById('generated_password_display').classList.add('hidden');
+    document.getElementById('editUserModal').style.display = 'flex';
+  } catch (e) {
+    alert('Ошибка загрузки пользователя');
+  }
+}
+function closeEditModal() {
+  document.getElementById('editUserModal').style.display = 'none';
+  document.getElementById('editUserForm').reset();
+  document.getElementById('generated_password_display').classList.add('hidden');
+  document.getElementById('edit_password').type = 'password';
+}
+window.onclick = function(e) { if (e.target.id === 'editUserModal') closeEditModal(); };
+document.getElementById('editUserForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var userId = document.getElementById('edit_user_id').value;
+  var formData = new FormData(e.target);
+  var data = {
+    full_name: formData.get('full_name') || null,
+    role: formData.get('role') || null,
+    department: formData.get('department') || null,
+    position: formData.get('position') || null,
+    is_active: document.getElementById('edit_is_active').checked
+  };
+  var pwd = formData.get('password');
+  if (pwd && pwd.trim()) data.password = pwd;
+  Object.keys(data).forEach(function(k) { if (data[k] === '' || data[k] === null) delete data[k]; });
+  try {
+    var response = await fetch('/api/user/' + userId, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}' },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) { var err = await response.json(); throw new Error(err.detail || 'Ошибка обновления'); }
+    if (window.showToast) window.showToast('Пользователь обновлён', 'success'); else alert('Сохранено');
+    closeEditModal();
+    location.reload();
+  } catch (err) {
+    alert('Ошибка: ' + err.message);
+  }
+});
+</script>
+{% endblock %}

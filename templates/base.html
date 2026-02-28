@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Система учета времени{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: { DEFAULT: '#6366F1', hover: '#4F46E5' },
+            success: '#22C55E',
+            warning: '#F59E0B',
+            danger: '#EF4444',
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        },
+      },
+    };
+  </script>
+  <link href="/static/css/design.css" rel="stylesheet">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-[var(--bg-page)] text-[var(--text-primary)]">
+  <button id="sidebar-open" type="button" class="fixed top-4 left-4 z-20 lg:hidden btn btn-ghost rounded-lg shadow" aria-label="Меню">☰</button>
+  <div class="app-layout">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <a href="/analytics" class="sidebar-logo">
+          <span class="nav-icon">⏱</span>
+          <span>Учёт времени</span>
+        </a>
+        <button id="sidebar-toggle" type="button" class="sidebar-toggle" aria-label="Свернуть меню" title="Свернуть меню">≡</button>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="/terminal" class="{% if active_nav == 'terminal' %}active{% endif %}">
+          <span class="nav-icon">📟</span>
+          <span>Терминал</span>
+        </a>
+        <a href="/analytics" class="{% if active_nav == 'analytics' %}active{% endif %}">
+          <span class="nav-icon">📊</span>
+          <span>Аналитика</span>
+        </a>
+        <a href="/admin" class="{% if active_nav == 'admin' %}active{% endif %}">
+          <span class="nav-icon">👥</span>
+          <span>Сейчас на работе</span>
+        </a>
+        <a href="/users" class="{% if active_nav == 'users' %}active{% endif %}">
+          <span class="nav-icon">⚙️</span>
+          <span>Пользователи</span>
+        </a>
+        <a href="/logout" class="mt-auto">
+          <span class="nav-icon">🚪</span>
+          <span>Выход</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer p-3 border-t border-[var(--border)] flex items-center">
+        <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Тема">🌓</button>
+      </div>
+    </aside>
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black/40 z-30 hidden lg:hidden" aria-hidden="true" style="display: none;"></div>
+    <main class="main-content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <div id="toast-container"></div>
+  <script src="/static/js/app.js"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

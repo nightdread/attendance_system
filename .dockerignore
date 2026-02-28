@@ -59,3 +59,11 @@ test_*.py
 # Documentation
 README.md
 *.md
+
+# Cursor / coverage / misc
+.cursor/
+.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite3
+*.db

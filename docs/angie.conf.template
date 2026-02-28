@@ -1,5 +1,5 @@
-# Angie configuration for Attendance System with SSL
-# Port 443 (HTTPS only)
+# Шаблон конфига Angie для автономного развёртывания (HTTPS на порту 443).
+# В продакшене используется центральный прокси: /opt/angie_web_server (см. conf.d/attendance.conf).
 
 events {
     worker_connections 1024;

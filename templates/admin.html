@@ -1,291 +1,98 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Админ-панель - Система учета</title>
-    <style>
-        :root {
-            --bg: #0f172a;
-            --card: #111827;
-            --text: #e5e7eb;
-            --muted: #94a3b8;
-            --accent: #0ea5e9;
-            --accent-hover: #0284c7;
-            --border: #1f2937;
-            --shadow: 0 10px 30px rgba(0,0,0,0.35);
-            --success: #22c55e;
-        }
-        body {
-            font-family: Arial, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-        }
-        .nav {
-            margin-bottom: 2rem;
-            display: flex;
-            gap: 1rem;
-        }
-        .nav a {
-            padding: 0.5rem 1rem;
-            background: var(--accent);
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            box-shadow: 0 4px 10px rgba(14,165,233,0.25);
-            transition: background 0.15s ease, transform 0.1s ease;
-        }
-        .nav a:hover {
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-        }
-        .section {
-            background: var(--card);
-            border-radius: 12px;
-            box-shadow: var(--shadow);
-            padding: 1.5rem;
-            border: 1px solid var(--border);
-            margin-bottom: 2rem;
-        }
-        .section h2 {
-            margin-top: 0;
-            color: var(--text);
-        }
-        .table-wrapper {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            margin: 1rem 0;
-        }
-        table {
-            width: 100%;
-            min-width: 600px;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        th, td {
-            padding: 0.75rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-        }
-        th {
-            background-color: #0b1220;
-            font-weight: 600;
-            color: var(--text);
-        }
-        .action-btn {
-            padding: 0.25rem 0.5rem;
-            background: var(--success);
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            box-shadow: 0 3px 8px rgba(34,197,94,0.25);
-        }
-        .action-btn:hover {
-            background: #16a34a;
-        }
-        .no-data {
-            text-align: center;
-            color: var(--muted);
-            padding: 2rem;
-        }
-        .pill {
-            display: inline-block;
-            padding: 0.2rem 0.55rem;
-            border-radius: 999px;
-            background: #0b1220;
-            border: 1px solid var(--border);
-            color: var(--muted);
-            font-size: 0.85rem;
-            margin-left: 0.35rem;
-        }
-        .row-remote {
-            background: rgba(168, 85, 247, 0.08);
-            border-left: 3px solid #a855f7;
-        }
-        .remote-badge {
-            margin-left: 0.35rem;
-            font-size: 0.9rem;
-        }
-        .copy-btn {
-            background: transparent;
-            border: 1px solid var(--accent);
-            color: var(--accent);
-            padding: 0.25rem 0.6rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.15s ease;
-        }
-        .copy-btn:hover {
-            background: rgba(14,165,233,0.12);
-        }
-        /* Mobile styles */
-        @media (max-width: 768px) {
-            body {
-                padding: 1rem;
-            }
-            .container {
-                max-width: 100%;
-            }
-            .header h1 {
-                font-size: 1.5rem;
-            }
-            .nav {
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-            .nav a {
-                width: 100%;
-                text-align: center;
-                padding: 0.75rem;
-                min-height: 44px;
-            }
-            .section {
-                padding: 1rem;
-                margin-bottom: 1rem;
-            }
-            .section h2 {
-                font-size: 1.1rem;
-            }
-            table {
-                display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-            th, td {
-                padding: 0.5rem;
-                font-size: 0.85rem;
-                white-space: nowrap;
-            }
-            .action-btn {
-                padding: 0.5rem 0.75rem;
-                min-height: 44px;
-                display: inline-block;
-            }
-        }
-        @media (max-width: 480px) {
-            body {
-                padding: 0.5rem;
-            }
-            .section {
-                padding: 0.75rem;
-            }
-            .header h1 {
-                font-size: 1.25rem;
-            }
-            th, td {
-                padding: 0.4rem;
-                font-size: 0.8rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Админ-панель системы учета времени</h1>
-        </div>
+{% extends "base.html" %}
+{% block title %}Сейчас на работе — Система учета{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Сейчас на работе</h1>
+  <p class="page-subtitle">Сотрудники с открытой сессией (офис и удалёнка)</p>
+</div>
 
-        <div class="nav">
-            <a href="/terminal">Терминал</a>
-            <a href="/analytics">Аналитика</a>
-            <a href="/users">Пользователи</a>
-            <a href="/logout">Выход</a>
-        </div>
+{% if initial_creds %}
+<div class="card mb-6">
+  <h2 class="card-header">Сгенерированные учётные данные <span class="badge badge-warning">показывается один раз</span></h2>
+  <p class="text-[var(--text-secondary)] text-sm mb-4">База была пустой, созданы роли admin/manager/hr. Сохраните пароли — повторно их посмотреть нельзя.</p>
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Логин</th>
+          <th>Роль</th>
+          <th>Пароль</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cred in initial_creds %}
+        <tr>
+          <td>{{ cred[0] }}</td>
+          <td>{{ cred[2] }}</td>
+          <td class="font-mono text-sm">{{ cred[1] }}</td>
+          <td><button type="button" class="btn btn-outline copy-btn" data-copy="{{ cred[1] }}">Копировать</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
-        {% if initial_creds %}
-        <div class="section">
-            <h2>Сгенерированные учетные данные <span class="pill">показывается один раз</span></h2>
-            <p style="color: var(--muted); margin-top: 0.4rem;">База была пустой, поэтому созданы роли admin/manager/hr. Сохраните пароли — повторно их посмотреть нельзя.</p>
-            <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Логин</th>
-                        <th>Роль</th>
-                        <th>Пароль</th>
-                        <th>Действия</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for cred in initial_creds %}
-                    <tr>
-                        <td>{{ cred[0] }}</td>
-                        <td>{{ cred[2] }}</td>
-                        <td style="font-family: 'SFMono-Regular', Consolas, Menlo, monospace;">{{ cred[1] }}</td>
-                        <td><button class="copy-btn" data-copy="{{ cred[1] }}">Копировать</button></td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+<div class="card">
+  <h2 class="card-header">Сотрудники</h2>
+  {% if present_users %}
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ФИО</th>
+          <th>Локация</th>
+          <th>Время прихода</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in present_users %}
+        <tr class="{% if user.location == 'remote' %}bg-[var(--accent-muted)]/50{% endif %}">
+          <td>
+            <div class="flex items-center gap-2">
+              <span class="status-dot {% if user.location != 'remote' %}pulse{% endif %}"></span>
+              {{ user.fio }}
+              {% if user.location == 'remote' %}
+              <span class="badge badge-primary" title="Удалённая работа">🏠 Удалёнка</span>
+              {% endif %}
             </div>
-        </div>
-        {% endif %}
-        
-        <div class="section">
-            <h2>Сейчас на работе</h2>
-            {% if present_users %}
-            <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>ФИО</th>
-                        <th>Локация</th>
-                        <th>Время прихода</th>
-                        <th>Действия</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for user in present_users %}
-                    <tr class="{% if user.location == 'remote' %}row-remote{% endif %}">
-                        <td>
-                            {{ user.fio }}
-                            {% if user.location == 'remote' %}
-                            <span class="remote-badge" title="Удалённая работа">🏠</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ 'Удалёнка' if user.location == 'remote' else ('Офис' if user.location == 'global' else user.location.replace('_', ' ').title()) }}</td>
-                        <td>{{ user.ts }}</td>
-                        <td>
-                            <a href="/admin/user/{{ user.user_id }}" class="action-btn">История</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            </div>
-            {% else %}
-            <div class="no-data">
-                В данный момент никого нет (офис и удалёнка)
-            </div>
-            {% endif %}
-        </div>
-    </div>
-    <script>
-        document.querySelectorAll('.copy-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const text = btn.getAttribute('data-copy');
-                if (!text) return;
-                navigator.clipboard.writeText(text).then(() => {
-                    btn.textContent = 'Скопировано';
-                    setTimeout(() => btn.textContent = 'Копировать', 1500);
-                }).catch(() => {
-                    btn.textContent = 'Ошибка';
-                    setTimeout(() => btn.textContent = 'Копировать', 1500);
-                });
-            });
-        });
-    </script>
-</body>
-</html>
+          </td>
+          <td>{{ 'Удалёнка' if user.location == 'remote' else ('Офис' if user.location == 'global' else user.location.replace('_', ' ').title()) }}</td>
+          <td class="text-[var(--text-secondary)]">{{ user.ts }}</td>
+          <td>
+            <a href="/admin/user/{{ user.user_id }}" class="btn btn-outline btn-sm">История</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state-icon">👋</div>
+    <p class="empty-state-title">Никого нет</p>
+    <p>В данный момент нет открытых сессий (офис и удалёнка).</p>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+document.querySelectorAll('.copy-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var text = btn.getAttribute('data-copy');
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(function() {
+      btn.textContent = 'Скопировано';
+      if (window.showToast) window.showToast('Скопировано в буфер', 'success');
+      setTimeout(function() { btn.textContent = 'Копировать'; }, 1500);
+    }).catch(function() {
+      btn.textContent = 'Ошибка';
+      setTimeout(function() { btn.textContent = 'Копировать'; }, 1500);
+    });
+  });
+});
+</script>
+{% endblock %}

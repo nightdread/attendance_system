@@ -252,6 +252,18 @@ class AttendanceBot:
         if data == "reminder_checkout":
             await self.handle_reminder_checkout(update, context, user)
             return
+        if data == "reminder_still_working":
+            await self.handle_reminder_still_working(update, context, user)
+            return
+        if data == "absence_in_office":
+            await self.handle_absence_in_office(update, context)
+            return
+        if data == "absence_remote":
+            await self.handle_absence_remote(update, context)
+            return
+        if data == "absence_off":
+            await self.handle_absence_off(update, context)
+            return
 
         # Handle remote work (no token needed)
         if data == "remote_start":
@@ -327,7 +339,8 @@ class AttendanceBot:
                 location=location,
                 action=action_code,
                 username=user.username,
-                full_name=person['fio']
+                full_name=person['fio'],
+                event_source="qr"
             )
 
             # Token already marked as used above (mark_token_used_if_valid)
@@ -465,6 +478,7 @@ class AttendanceBot:
                 action="in",
                 username=user.username,
                 full_name=person["fio"],
+                event_source="bot_remote",
             )
             user_events = self.db.get_user_events(user.id, 1)
             ts = user_events[0]["ts"][:19].replace("T", " ") if user_events else ""
@@ -497,6 +511,7 @@ class AttendanceBot:
                 action="out",
                 username=user.username,
                 full_name=person["fio"],
+                event_source="bot_remote",
             )
             user_events = self.db.get_user_events(user.id, 1)
             ts = user_events[0]["ts"][:19].replace("T", " ") if user_events else ""
@@ -650,7 +665,8 @@ class AttendanceBot:
                 location=open_location,
                 action="out",
                 username=user.username,
-                full_name=person['fio']
+                full_name=person['fio'],
+                event_source="bot_reminder",
             )
 
             # Get timestamp
@@ -676,6 +692,38 @@ class AttendanceBot:
         except Exception as e:
             logger.error(f"Error creating checkout event from reminder: {e}")
             await query.edit_message_text("❌ Ошибка при сохранении события.")
+
+    async def handle_reminder_still_working(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+        """Handle 'Нет, еще надо поработать' — убрать кнопки и разрешить повторное напоминание позже."""
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text(
+            "Ок, не забудьте отметить уход, когда закончите."
+        )
+        if user.id in self.reminder_sent:
+            del self.reminder_sent[user.id]
+
+    async def handle_absence_in_office(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ответ «В офисе, отмечусь по QR» — просто подтверждение."""
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Ок, отсканируйте QR у терминала, когда придёте.")
+
+    async def handle_absence_remote(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ответ «Работаю удалённо» — показываем кнопку начала удалённой сессии."""
+        query = update.callback_query
+        await query.answer()
+        keyboard = [[InlineKeyboardButton("▶️ Начать удалённую сессию", callback_data="remote_start")]]
+        await query.edit_message_text(
+            "Нажмите кнопку ниже, чтобы начать удалённую сессию:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    async def handle_absence_off(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ответ «Не на работе» — принято, без действий."""
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Принято. Хорошего дня!")
 
     async def check_and_send_reminders(self):
         """Check for open sessions older than 8 hours and send reminders"""
@@ -722,7 +770,10 @@ class AttendanceBot:
                         f"🏠 Не забыли отметить уход?"
                     )
 
-                    keyboard = [[InlineKeyboardButton("✅ Да, ушел", callback_data="reminder_checkout")]]
+                    keyboard = [
+                        [InlineKeyboardButton("✅ Да, ушел", callback_data="reminder_checkout")],
+                        [InlineKeyboardButton("Нет, еще надо поработать", callback_data="reminder_still_working")],
+                    ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
 
                     # Send reminder
@@ -768,6 +819,12 @@ class AttendanceBot:
             end_utc = end_local.astimezone(timezone.utc).isoformat()
 
             users_without_checkin = self.db.get_users_without_checkin_between(start_utc, end_utc)
+            keyboard = [
+                [InlineKeyboardButton("В офисе, отмечусь по QR", callback_data="absence_in_office")],
+                [InlineKeyboardButton("Работаю удалённо", callback_data="absence_remote")],
+                [InlineKeyboardButton("Не на работе (отпуск / больничный)", callback_data="absence_off")],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             for row in users_without_checkin:
                 user_id = row["tg_user_id"]
                 fio = row.get("fio", "")
@@ -776,9 +833,9 @@ class AttendanceBot:
                         chat_id=user_id,
                         text=(
                             "⏰ Напоминание\n\n"
-                            "Вы не отметили приход сегодня.\n"
-                            "Вы на работе? Отсканируйте QR-код у терминала и отметьтесь."
+                            "Вы не отметили приход сегодня. Почему не на работе?"
                         ),
+                        reply_markup=reply_markup,
                     )
                     logger.info(f"Sent absence reminder to user {user_id} ({fio})")
                 except Exception as e:
@@ -859,19 +916,42 @@ def main():
             # CronTrigger already ensures Monday, no extra weekday check needed
             last_week_start = today - timedelta(days=7)
             last_week_end = today - timedelta(days=1)
-            
+
+            start_str = last_week_start.isoformat()
+            end_str = last_week_end.isoformat()
+            pivot = bot.db.get_pivot_report(start_str, end_str)
+            source_summary = bot.db.get_checkout_source_summary(start_str, end_str)
+
+            lines = [
+                f"# Еженедельный отчет ({last_week_start.strftime('%d.%m.%Y')} - {last_week_end.strftime('%d.%m.%Y')})",
+                "",
+                "| Сотрудник | Часы | Уходы QR | Уходы по напоминанию (офис) | Уходы через бота | Уходы по напоминанию (удалёнка) |",
+                "|---|---:|---:|---:|---:|---:|",
+            ]
+            for employee in pivot.get("employees", []):
+                employee_id = employee["id"]
+                fio = employee.get("fio", "—")
+                total_hours = float(pivot.get("totals", {}).get(employee_id, 0.0) or 0.0)
+                src = source_summary.get(employee_id, {})
+                lines.append(
+                    f"| {fio} | {total_hours:.2f} | {src.get('checkout_qr', 0)} | {src.get('checkout_reminder_office', 0)} | {src.get('checkout_bot_remote', 0)} | {src.get('checkout_reminder_remote', 0)} |"
+                )
+
+            markdown_report = "\n".join(lines) + "\n"
+            report_filename = f"weekly_report_{last_week_start.strftime('%Y%m%d')}_{last_week_end.strftime('%Y%m%d')}.md"
+
             # Получаем всех пользователей
             with bot.db.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT DISTINCT tg_user_id FROM people")
                 user_ids = [row[0] for row in cursor.fetchall()]
-            
+
             for user_id in user_ids:
                 try:
                     stats = bot.db.get_employee_period_summary(
                         tg_user_id=user_id,
-                        start_date=last_week_start.isoformat(),
-                        end_date=last_week_end.isoformat(),
+                        start_date=start_str,
+                        end_date=end_str,
                     )
                     if stats and stats.get('total_work_days', 0) > 0:
                         summary = (
@@ -879,9 +959,20 @@ def main():
                             f"Рабочих дней: {stats.get('total_work_days', 0)}\n"
                             f"Приходов: {stats.get('total_checkins', 0)}\n"
                             f"Уходов: {stats.get('total_checkouts', 0)}\n"
-                            f"Среднее время работы: {stats.get('avg_work_time', 0):.1f} ч"
+                            f"Среднее время работы: {stats.get('avg_work_time', 0):.1f} ч\n\n"
+                            f"Офис: уходы по QR — {stats.get('checkout_qr', 0)}, по напоминанию — {stats.get('checkout_reminder_office', 0)}\n"
+                            f"Удалёнка: уходы через бота — {stats.get('checkout_bot_remote', 0)}, по напоминанию — {stats.get('checkout_reminder_remote', 0)}"
                         )
                         await bot.application.bot.send_message(chat_id=user_id, text=summary)
+
+                        import io
+                        report_file = io.BytesIO(markdown_report.encode("utf-8"))
+                        report_file.name = report_filename
+                        await bot.application.bot.send_document(
+                            chat_id=user_id,
+                            document=report_file,
+                            caption="📄 Файл weekly report (.md)",
+                        )
                 except Exception as e:
                     logger.error(f"Failed to send weekly summary to {user_id}: {e}")
         except Exception as e:

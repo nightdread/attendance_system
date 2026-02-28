@@ -1,436 +1,73 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Терминал учета времени</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <style>
-        :root {
-            --bg: #0f172a;
-            --card: #111827;
-            --text: #e5e7eb;
-            --muted: #94a3b8;
-            --accent: #0ea5e9;
-            --accent-hover: #0284c7;
-            --shadow: 0 8px 24px rgba(0,0,0,0.35);
-            --border: #1f2937;
-        }
-        body {
-            font-family: Arial, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        .terminal-container {
-            width: 100%;
-            max-width: 640px;
-            margin: 0 auto;
-            background: var(--card);
-            border-radius: 14px;
-            box-shadow: var(--shadow);
-            padding: 2.2rem;
-            border: 1px solid var(--border);
-        }
-        .qr-container {
-            text-align: center;
-            margin: 2rem 0;
-        }
-        .qr-container h2 {
-            color: var(--text);
-            font-size: 1.75rem;
-            font-weight: 700;
-            margin-bottom: 1.5rem;
-            letter-spacing: -0.5px;
-        }
-        .qr-code {
-            margin: 1.5rem 0;
-            display: inline-block;
-            border: 3px solid var(--muted);
-            border-radius: 8px;
-            padding: 1rem;
-            background: #000000;
-        }
-        .qr-code #qrcode {
-            background: #ffffff;
-            padding: 0.5rem;
-            border-radius: 4px;
-        }
-        .token-info {
-            background: #0b1220;
-            padding: 1.5rem;
-            border-radius: 12px;
-            margin-top: 1.5rem;
-            font-family: "SFMono-Regular", Consolas, Menlo, monospace;
-            border: 1px solid var(--border);
-            color: var(--text);
-            display: flex;
-            flex-direction: column;
-        }
-        .token-label {
-            color: var(--muted);
-            font-size: 0.9rem;
-            font-weight: 500;
-            white-space: nowrap;
-            flex-shrink: 0;
-        }
-        .token-value {
-            color: var(--text);
-            font-weight: 600;
-            font-size: 0.95rem;
-            letter-spacing: 0.5px;
-            flex: 1;
-            min-width: 0;
-            word-break: break-all;
-        }
-        .update-time {
-            color: var(--muted);
-            font-size: 0.85rem;
-            margin-top: 0.75rem;
-            text-align: center;
-            font-style: italic;
-            padding-top: 0.75rem;
-            border-top: 1px solid rgba(31, 41, 55, 0.5);
-        }
-        .status {
-            text-align: center;
-            margin-top: 1rem;
-            color: var(--muted);
-        }
-        .top-buttons {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            display: flex;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-        }
-        @media (max-width: 768px) {
-            .top-buttons {
-                position: static;
-                margin-bottom: 1rem;
-                justify-content: center;
-                width: 100%;
-            }
-            .top-buttons a {
-                flex: 1 1 auto;
-                min-width: 120px;
-                text-align: center;
-            }
-        }
-        .admin-btn, .cabinet-btn {
-            background: var(--accent);
-            color: white;
-            border: none;
-            padding: 0.55rem 1.1rem;
-            border-radius: 6px;
-            cursor: pointer;
-            text-decoration: none;
-            font-weight: 600;
-            box-shadow: 0 4px 10px rgba(14,165,233,0.35);
-            transition: background 0.15s ease, transform 0.1s ease;
-        }
-        .admin-btn:hover, .cabinet-btn:hover {
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-        }
-        .admin-btn:active, .cabinet-btn:active {
-            transform: translateY(0);
-        }
-        .copy-btn {
-            background: transparent;
-            color: var(--accent);
-            border: 1.5px solid var(--accent);
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 0.9rem;
-            transition: all 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            flex-shrink: 0;
-            white-space: nowrap;
-        }
-        .copy-btn:hover {
-            background: rgba(14,165,233,0.15);
-            border-color: var(--accent-hover);
-            color: var(--accent-hover);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(14,165,233,0.2);
-        }
-        .copy-btn:active {
-            transform: translateY(0);
-        }
-        .bot-link-btn {
-            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-            color: white;
-            border: none;
-            padding: 0.875rem 1.5rem;
-            border-radius: 10px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 1rem;
-            transition: all 0.2s ease;
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            box-shadow: 0 4px 15px rgba(14,165,233,0.3);
-            width: 100%;
-            box-sizing: border-box;
-            margin-top: 1rem;
-            margin-bottom: 0.5rem;
-        }
-        .bot-link-btn:hover {
-            background: linear-gradient(135deg, var(--accent-hover) 0%, #0274a8 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(14,165,233,0.4);
-        }
-        .bot-link-btn:active {
-            transform: translateY(0);
-            box-shadow: 0 2px 10px rgba(14,165,233,0.3);
-        }
-        .token-row {
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-            word-break: break-all;
-            margin-bottom: 1.25rem;
-            padding: 0.75rem;
-            background: rgba(14, 165, 233, 0.05);
-            border-radius: 8px;
-            border: 1px solid rgba(14, 165, 233, 0.1);
-        }
-        .token-row:last-of-type {
-            margin-bottom: 0;
-        }
-        /* Mobile styles */
-        @media (max-width: 768px) {
-            body {
-                padding: 1rem;
-                align-items: flex-start;
-                padding-top: 80px;
-            }
-            .terminal-container {
-                padding: 1.5rem;
-                max-width: 100%;
-            }
-            .top-buttons {
-                position: fixed;
-                top: 10px;
-                right: 10px;
-                left: 10px;
-                flex-direction: column;
-                gap: 0.5rem;
-                z-index: 1000;
-            }
-            .admin-btn, .cabinet-btn {
-                width: 100%;
-                padding: 0.75rem;
-                min-height: 44px;
-                font-size: 0.9rem;
-            }
-            .header h2 {
-                font-size: 1.25rem;
-            }
-            .qr-code {
-                margin: 1rem 0;
-            }
-            .token-info {
-                padding: 0.75rem;
-                font-size: 0.9rem;
-            }
-            .token-row {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 0.5rem;
-            }
-            .copy-btn {
-                width: 100%;
-                padding: 0.6rem;
-                min-height: 44px;
-            }
-        }
-        @media (max-width: 480px) {
-            body {
-                padding: 0.5rem;
-                padding-top: 70px;
-            }
-            .terminal-container {
-                padding: 1rem;
-            }
-            .header h2 {
-                font-size: 1.1rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="top-buttons">
-        <a href="{% if user_info %}/me{% else %}/login{% endif %}" class="cabinet-btn">Личный кабинет</a>
-        {% if user_info and user_info.is_admin %}
-        <a href="/admin" class="admin-btn">Администрирование</a>
-        {% endif %}
+{% extends "base.html" %}
+{% block title %}Терминал — Система учета{% endblock %}
+{% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+.terminal-qr-card { max-width: 560px; margin: 0 auto; }
+.qr-code { margin: 1.5rem 0; display: inline-block; border: 3px solid var(--border); border-radius: var(--radius); padding: 1rem; background: #000; }
+.qr-code #qrcode { background: #fff; padding: 0.5rem; border-radius: 4px; }
+.token-info { background: var(--bg-elevated); padding: 1.25rem; border-radius: var(--radius); margin-top: 1rem; border: 1px solid var(--border); }
+.token-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.token-value { font-family: ui-monospace, monospace; font-size: 0.9rem; word-break: break-all; flex: 1; min-width: 0; }
+.update-time { text-align: center; font-size: var(--text-sm); color: var(--text-muted); margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.terminal-status { text-align: center; margin-top: 1rem; color: var(--text-muted); font-size: var(--text-sm); }
+.bot-link-btn { display: inline-block; margin-top: 0.5rem; color: var(--accent); font-weight: 500; }
+.bot-link-btn:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="terminal-qr-card card">
+  <div class="text-center">
+    <h2 class="text-xl font-bold mb-4">Система учета посещаемости</h2>
+    <div class="qr-code">
+      <div id="qrcode"></div>
     </div>
-    <div class="terminal-container">
-        <div class="qr-container">
-            <h2>📊 Система учета посещаемости</h2>
-            <div class="qr-code">
-                <div id="qrcode"></div>
-            </div>
-            <div class="token-info">
-                <div class="token-row">
-                    <span class="token-label">🔑 Токен:</span>
-                    <span class="token-value" id="current-token">Загрузка...</span>
-                    <button class="copy-btn" id="copy-token-btn">📋 Скопировать</button>
-                </div>
-                <a href="#" id="open-bot-link" class="bot-link-btn" target="_blank" rel="noopener noreferrer">
-                    🤖 Перейти к боту
-                </a>
-                <div class="update-time">
-                    ⏰ Обновлено: <span id="last-update">-</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="status" id="status">
-            Загрузка QR-кода...
-        </div>
+    <div class="token-info">
+      <div class="token-row">
+        <span class="text-[var(--text-muted)] text-sm">Токен:</span>
+        <span id="current-token" class="token-value">Загрузка...</span>
+        <button type="button" class="btn btn-outline btn-sm" id="copy-token-btn">Копировать</button>
+      </div>
+      <a href="#" id="open-bot-link" class="bot-link-btn" target="_blank" rel="noopener noreferrer">Перейти к боту</a>
+      <div class="update-time">Обновлено: <span id="last-update">—</span></div>
     </div>
+  </div>
+  <div class="terminal-status" id="status">Загрузка QR-кода...</div>
+</div>
 
-    <script>
-        let currentToken = null;
-        let qrCode = null;
-        let updateInterval = {{ update_interval }};
-        let botUrl = null;
-
-        function updateQRCode() {
-            document.getElementById('status').textContent = 'Обновление QR-кода...';
-
-            fetch('/api/active_token', { credentials: 'include' })
-                .then(response => response.json())
-                .then(data => {
-                    if (!data.token) {
-                        document.getElementById('status').textContent = 'Не удалось получить токен';
-                        return;
-                    }
-                    const newToken = data.token;
-                    const url = data.url;
-                    botUrl = data.bot_url || url;
-
-                    if (newToken !== currentToken) {
-                        currentToken = newToken;
-
-                        // Clear existing QR code
-                        document.getElementById('qrcode').innerHTML = '';
-
-                        // Generate new QR code
-                        qrCode = new QRCode(document.getElementById('qrcode'), {
-                            text: url,
-                            width: 256,
-                            height: 256,
-                            colorDark: "#000000",
-                            colorLight: "#ffffff",
-                            correctLevel: QRCode.CorrectLevel.H
-                        });
-                    }
-
-                    document.getElementById('current-token').textContent = newToken;
-                    // Update bot link button href
-                    const botLinkButton = document.getElementById('open-bot-link');
-                    if (botLinkButton && botUrl) {
-                        botLinkButton.href = botUrl;
-                    }
-                    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
-                    document.getElementById('status').textContent = 'QR-код готов для сканирования';
-                })
-                .catch(error => {
-                    console.error('Error updating QR code:', error);
-                    document.getElementById('status').textContent = 'Ошибка при обновлении QR-кода';
-                });
-        }
-
-        // Initial load
-        updateQRCode();
-
-        // Set up periodic updates
-        setInterval(updateQRCode, updateInterval);
-
-        function copyText(text) {
-            if (!text || text === 'Загрузка...' || text === '-') {
-                document.getElementById('status').textContent = 'Нет данных для копирования';
-                return;
-            }
-            
-            // Используем современный API или fallback для старых браузеров
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(() => {
-                    document.getElementById('status').textContent = 'Скопировано';
-                    setTimeout(() => {
-                        if (document.getElementById('status')) {
-                            document.getElementById('status').textContent = 'QR-код готов для сканирования';
-                        }
-                    }, 1500);
-                }).catch((err) => {
-                    console.error('Clipboard error:', err);
-                    // Fallback для старых браузеров
-                    fallbackCopyText(text);
-                });
-            } else {
-                // Fallback для браузеров без Clipboard API
-                fallbackCopyText(text);
-            }
-        }
-
-        function fallbackCopyText(text) {
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            textArea.style.position = 'fixed';
-            textArea.style.left = '-999999px';
-            textArea.style.top = '-999999px';
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            
-            try {
-                const successful = document.execCommand('copy');
-                if (successful) {
-                    document.getElementById('status').textContent = 'Скопировано';
-                    setTimeout(() => {
-                        if (document.getElementById('status')) {
-                            document.getElementById('status').textContent = 'QR-код готов для сканирования';
-                        }
-                    }, 1500);
-                } else {
-                    document.getElementById('status').textContent = 'Не удалось скопировать';
-                }
-            } catch (err) {
-                console.error('Fallback copy error:', err);
-                document.getElementById('status').textContent = 'Не удалось скопировать';
-            }
-            
-            document.body.removeChild(textArea);
-        }
-
-        document.getElementById('copy-token-btn').addEventListener('click', () => {
-            const tokenText = document.getElementById('current-token').textContent.trim();
-            copyText(tokenText);
-        });
-    </script>
-</body>
-</html>
+<script>
+var currentToken = null;
+var qrCode = null;
+var updateInterval = {{ update_interval }};
+var botUrl = null;
+function updateQRCode() {
+  document.getElementById('status').textContent = 'Обновление...';
+  fetch('/api/active_token', { credentials: 'include' }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.token) { document.getElementById('status').textContent = 'Не удалось получить токен'; return; }
+    var newToken = data.token;
+    var url = data.url;
+    botUrl = data.bot_url || url;
+    if (newToken !== currentToken) {
+      currentToken = newToken;
+      document.getElementById('qrcode').innerHTML = '';
+      qrCode = new QRCode(document.getElementById('qrcode'), { text: url, width: 256, height: 256, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.H });
+    }
+    document.getElementById('current-token').textContent = newToken;
+    var link = document.getElementById('open-bot-link');
+    if (link && botUrl) link.href = botUrl;
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+    document.getElementById('status').textContent = 'QR-код готов для сканирования';
+  }).catch(function() { document.getElementById('status').textContent = 'Ошибка обновления'; });
+}
+updateQRCode();
+setInterval(updateQRCode, updateInterval);
+document.getElementById('copy-token-btn').addEventListener('click', function() {
+  var t = document.getElementById('current-token').textContent.trim();
+  if (!t || t === 'Загрузка...') return;
+  navigator.clipboard.writeText(t).then(function() {
+    document.getElementById('status').textContent = 'Скопировано';
+    setTimeout(function() { document.getElementById('status').textContent = 'QR-код готов для сканирования'; }, 1500);
+  }).catch(function() { document.getElementById('status').textContent = 'Не удалось скопировать'; });
+});
+</script>
+{% endblock %}

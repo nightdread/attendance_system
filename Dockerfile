@@ -1,4 +1,6 @@
-FROM python:3.12-slim AS builder
+# syntax=docker/dockerfile:1
+# Use BuildKit for faster builds: DOCKER_BUILDKIT=1 (default in Docker Compose 2.x)
+FROM python:3.13-slim AS builder
 
 WORKDIR /app
 
@@ -11,10 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+# Pip cache mount: repeated builds reuse downloaded wheels (faster when only code changes)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m venv /opt/venv && /opt/venv/bin/pip install -r requirements.txt
 
 # ---- Runtime image ----
-FROM python:3.12-slim
+FROM python:3.13-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

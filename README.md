@@ -56,7 +56,7 @@
 Backend   FastAPI + SQLite + Redis (опционально)
 Bot       python-telegram-bot + APScheduler
 Frontend  HTML/JS, Chart.js, PWA
-Proxy     Angie (nginx fork) — HTTPS, SSL/TLS
+Proxy     Angie в /opt/angie_web_server — HTTPS, SSL/TLS (встроенный ACME)
 Auth      JWT + Session (Starlette SessionMiddleware)
 Export    openpyxl (Excel), icalendar (iCal), SMTP (email)
 ```
@@ -93,8 +93,8 @@ attendance_system/
 ├── tools/              # Операционные скрипты (бэкапы, ротация, деплой)
 ├── docs/               # Документация и шаблоны конфигов
 ├── examples/           # Примеры для ESP32 / микроконтроллеров
-├── ssl/                # SSL-сертификаты (не в git)
-├── logs/               # Логи приложения и Angie (не в git)
+├── ssl/                # Не используется при прокси через angie_web_server (см. ssl/README.md)
+├── logs/               # Логи приложения (не в git)
 ├── database.py         # Слой работы с БД (SQLite)
 ├── Dockerfile
 ├── docker-compose.yml
@@ -109,7 +109,7 @@ attendance_system/
 ### Требования
 - Docker и Docker Compose
 - Telegram-бот (создать через [@BotFather](https://t.me/botfather))
-- Домен с SSL-сертификатами (для production)
+- Домен (для production; SSL настраивается в angie_web_server)
 
 ### Запуск
 
@@ -127,7 +127,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Приложение доступно по `https://your-domain.com` после настройки SSL.
+Приложение доступно по HTTPS после запуска reverse proxy (см. раздел «Сервисы» ниже и /opt/angie_web_server/README.md).
 
 ---
 
@@ -143,12 +143,12 @@ docker compose up -d
 | `BOT_TOKEN` | Токен бота от @BotFather |
 | `BOT_USERNAME` | Username бота (без @) |
 | `WEB_PASSWORD` | Пароль первичного деплоя (используется только для проверки при старте) |
-| `DOMAIN` | Домен для HTTPS (например, `example.com`) |
 
 **Опциональные:**
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
+| `DOMAIN` | — | Домен (только для `generate-angie-conf.sh` при автономном Angie; при angie_web_server не нужен) |
 | `TIMEZONE` | `Europe/Moscow` | Часовой пояс для отображения времени |
 | `JWT_SECRET_KEY` | `SECRET_KEY` | Ключ подписи JWT (можно ротировать отдельно) |
 | `JWT_SECRET_KEY_PREV` | — | Предыдущий JWT-ключ (zero-downtime ротация) |
@@ -167,18 +167,11 @@ docker compose up -d
 | `PRODUCTION_CALENDAR_FILE` | — | Путь к локальному JSON-файлу календаря |
 | `DB_PATH` | `/app/attendance.db` | Путь к файлу SQLite |
 
-### SSL-сертификаты
+### SSL и reverse proxy
 
-Поместите сертификаты Let's Encrypt в директорию `ssl/`:
-```
-ssl/fullchain.pem   — цепочка сертификатов
-ssl/privkey.pem     — приватный ключ
-```
+В продакшене HTTPS и проксирование на `attendance_app` выполняет **angie_web_server** (/opt/angie_web_server). Сертификаты для attendance.141922.ru получает и продлевает встроенный ACME в Angie. Отдельно класть сертификаты в `ssl/` не нужно.
 
-Для генерации конфига Angie из шаблона:
-```bash
-./tools/generate-angie-conf.sh   # требует DOMAIN в .env
-```
+Для автономного развёртывания (собственный контейнер Angie) можно сгенерировать конфиг из шаблона: `./tools/generate-angie-conf.sh` (требует `DOMAIN` в .env). Шаблон: `docs/angie.conf.template`.
 
 ### Часовой пояс
 
@@ -419,7 +412,8 @@ docker compose ps
 - `attendance_app` — FastAPI backend (порт 8000 внутри сети)
 - `attendance_bot` — Telegram-бот
 - `redis` — кэш
-- `angie` — HTTPS reverse-proxy (порт 443)
+
+**Reverse proxy (HTTPS):** в этом compose reverse proxy нет. Терминация HTTPS и проксирование на `attendance_app` выполняет отдельный сервис **angie_web_server** (см. `/opt/angie_web_server/README.md`). Порядок запуска: сначала приложения (edison_portal, attendance_system), затем `docker compose up -d` в angie_web_server.
 
 ---
 

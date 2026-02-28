@@ -285,7 +285,8 @@ def build_terminal_context(request: Request, db: Database) -> dict:
             "url": url,
             "bot_url": url,
             "update_interval": QR_UPDATE_INTERVAL * 1000,
-            "user_info": user_info
+            "user_info": user_info,
+            "active_nav": "terminal",
         }
 
 
@@ -371,20 +372,12 @@ async def get_token_for_device(request: Request, db: Database = Depends(get_db))
 # Web terminal routes
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Database = Depends(get_db)):
-    """Главная: терминал с QR-кодом (требует авторизацию с ролью terminal)"""
-    # Проверяем авторизацию
+    """Главная: терминал с QR-кодом (доступен ролям terminal, admin, manager, hr)"""
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login?next=/", status_code=302)
-    
-    # Проверяем роль - только terminal может видеть QR-код
     user_role = request.session.get("user_role")
-    if user_role != "terminal":
-        # Если не terminal, редиректим на админку или страницу доступа
-        if user_role in ["admin", "manager", "hr"]:
-            return RedirectResponse(url="/admin", status_code=302)
-        else:
-            return RedirectResponse(url="/me", status_code=302)
-    
+    if user_role not in ["terminal", "admin", "manager", "hr"]:
+        return RedirectResponse(url="/me", status_code=302)
     context = build_terminal_context(request, db)
     return templates.TemplateResponse("terminal.html", context)
 
@@ -548,20 +541,12 @@ async def login(
 
 @app.get("/terminal", response_class=HTMLResponse)
 async def terminal_page(request: Request, db: Database = Depends(get_db)):
-    """Терминал с QR-кодом (требует авторизацию с ролью terminal)"""
-    # Проверяем авторизацию
+    """Терминал с QR-кодом: доступен ролям terminal, admin, manager, hr"""
     if not request.session.get("authenticated"):
         return RedirectResponse(url="/login?next=/terminal", status_code=302)
-    
-    # Проверяем роль - только terminal может видеть QR-код
     user_role = request.session.get("user_role")
-    if user_role != "terminal":
-        # Если не terminal, редиректим на админку или страницу доступа
-        if user_role in ["admin", "manager", "hr"]:
-            return RedirectResponse(url="/admin", status_code=302)
-        else:
-            return RedirectResponse(url="/me", status_code=302)
-    
+    if user_role not in ["terminal", "admin", "manager", "hr"]:
+        return RedirectResponse(url="/me", status_code=302)
     context = build_terminal_context(request, db)
     return templates.TemplateResponse("terminal.html", context)
 
@@ -597,7 +582,8 @@ async def admin_page(request: Request, db: Database = Depends(get_db)):
         {
             "request": request,
             "present_users": present_users,
-            "initial_creds": initial_creds
+            "initial_creds": initial_creds,
+            "active_nav": "admin",
         }
     )
 
@@ -623,7 +609,8 @@ async def user_history(request: Request, user_id: int, db: Database = Depends(ge
         {
             "request": request,
             "user": user,
-            "events": events
+            "events": events,
+            "active_nav": "admin",
         }
     )
 
@@ -662,7 +649,8 @@ async def self_dashboard(request: Request, db: Database = Depends(get_db)):
                 "self_dashboard.html",
                 {
                     "request": request,
-                    "error": "Профиль не найден. Отсканируйте QR через бота, чтобы зарегистрироваться."
+                    "error": "Профиль не найден. Отсканируйте QR через бота, чтобы зарегистрироваться.",
+                    "active_nav": None,
                 }
             )
 
@@ -672,7 +660,8 @@ async def self_dashboard(request: Request, db: Database = Depends(get_db)):
                 "request": request,
                 "person": person,
                 "stats": stats,
-                "role": role
+                "role": role,
+                "active_nav": None,
             }
         )
     except Exception as e:
@@ -720,7 +709,8 @@ async def analytics_dashboard(request: Request):
                 "hourly_distribution": hourly_distribution,
                 "top_workers": top_workers,
                 "department_stats": department_stats,
-                "employee_list": employee_list
+                "employee_list": employee_list,
+                "active_nav": "analytics",
             }
         )
     except Exception as e:
@@ -765,7 +755,8 @@ async def user_management(request: Request, db: Database = Depends(get_db)):
                 "users": users,
                 "roles": roles,
                 "current_user_role": user_role,
-                "csrf_token": csrf_token
+                "csrf_token": csrf_token,
+                "active_nav": "users",
             }
         )
     except Exception as e:
@@ -1914,7 +1905,7 @@ async def export_pivot_report(
     start_date: str = None,
     end_date: str = None,
     period: str = None,  # "last_week", "last_month", "current_month"
-    format: str = "csv",  # "csv" or "xlsx"
+    format: str = "csv",  # "csv", "xlsx" or "md"
     db: Database = Depends(get_db)
 ):
     """
@@ -1925,7 +1916,7 @@ async def export_pivot_report(
     Параметры:
     - start_date, end_date: даты в формате YYYY-MM-DD
     - period: "last_week", "last_month", "current_month" (альтернатива датам)
-    - format: "csv" или "xlsx"
+    - format: "csv", "xlsx" или "md"
     """
     rate_limit(request, max_requests=10, window_seconds=60, key_prefix="export")
     payload = authorize_request(request, require_roles=["admin", "manager", "hr"])
@@ -1955,9 +1946,15 @@ async def export_pivot_report(
     else:
         raise HTTPException(status_code=400, detail="Either period or start_date+end_date must be provided")
     
+    format = (format or "csv").lower()
+    if format not in {"csv", "xlsx", "md"}:
+        raise HTTPException(status_code=400, detail="Unsupported format. Use csv, xlsx or md")
+
     # Получаем данные
     report_data = db.get_pivot_report(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
-    
+    source_summary = db.get_checkout_source_summary(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+    hours_summary = db.get_checkout_hours_summary(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
+
     if format == "xlsx":
         try:
             from openpyxl import Workbook
@@ -1986,22 +1983,44 @@ async def export_pivot_report(
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 col += 1
             
-            # Итого
+            # Итого + источники checkout (офис: QR, напоминание; удалёнка: бот, напоминание) + часы по типу ухода
             total_col = col
             ws.cell(row=1, column=total_col).value = "Итого"
             ws.cell(row=1, column=total_col).fill = header_fill
             ws.cell(row=1, column=total_col).font = header_font
             ws.cell(row=1, column=total_col).alignment = Alignment(horizontal="center", vertical="center")
-            
+            qr_col = total_col + 1
+            reminder_office_col = total_col + 2
+            bot_remote_col = total_col + 3
+            reminder_remote_col = total_col + 4
+            hours_qr_col = total_col + 5
+            hours_reminder_office_col = total_col + 6
+            hours_bot_remote_col = total_col + 7
+            hours_reminder_remote_col = total_col + 8
+            for c, title in [
+                (qr_col, "Уходы QR"),
+                (reminder_office_col, "Уходы по напоминанию (офис)"),
+                (bot_remote_col, "Уходы через бота"),
+                (reminder_remote_col, "Уходы по напоминанию (удалёнка)"),
+                (hours_qr_col, "Часы по QR"),
+                (hours_reminder_office_col, "Часы по напоминанию (офис)"),
+                (hours_bot_remote_col, "Часы через бота"),
+                (hours_reminder_remote_col, "Часы по напоминанию (удалёнка)"),
+            ]:
+                ws.cell(row=1, column=c).value = title
+                ws.cell(row=1, column=c).fill = header_fill
+                ws.cell(row=1, column=c).font = header_font
+                ws.cell(row=1, column=c).alignment = Alignment(horizontal="center", vertical="center")
+
             # Данные
             row = 2
             for employee in report_data['employees']:
                 employee_id = employee['id']
                 fio = employee['fio']
-                
+
                 # Фамилия
                 ws.cell(row=row, column=1).value = fio
-                
+
                 # Часы по дням
                 col = 2
                 for day in report_data['days']:
@@ -2010,19 +2029,38 @@ async def export_pivot_report(
                     cell.value = format_hours_to_hhmm_util(hours)
                     cell.alignment = Alignment(horizontal="center")
                     col += 1
-                
+
                 # Итого
                 total_hours = report_data['totals'][employee_id]
                 ws.cell(row=row, column=total_col).value = format_hours_to_hhmm_util(total_hours)
                 ws.cell(row=row, column=total_col).font = Font(bold=True)
                 ws.cell(row=row, column=total_col).alignment = Alignment(horizontal="center")
-                
+
+                source_row = source_summary.get(employee_id, {})
+                hours_row = hours_summary.get(employee_id, {})
+                ws.cell(row=row, column=qr_col).value = source_row.get("checkout_qr", 0)
+                ws.cell(row=row, column=qr_col).alignment = Alignment(horizontal="center")
+                ws.cell(row=row, column=reminder_office_col).value = source_row.get("checkout_reminder_office", 0)
+                ws.cell(row=row, column=reminder_office_col).alignment = Alignment(horizontal="center")
+                ws.cell(row=row, column=bot_remote_col).value = source_row.get("checkout_bot_remote", 0)
+                ws.cell(row=row, column=bot_remote_col).alignment = Alignment(horizontal="center")
+                ws.cell(row=row, column=reminder_remote_col).value = source_row.get("checkout_reminder_remote", 0)
+                ws.cell(row=row, column=reminder_remote_col).alignment = Alignment(horizontal="center")
+                ws.cell(row=row, column=hours_qr_col).value = format_hours_to_hhmm_util(hours_row.get("hours_qr", 0))
+                ws.cell(row=row, column=hours_qr_col).alignment = Alignment(horizontal="center")
+                ws.cell(row=row, column=hours_reminder_office_col).value = format_hours_to_hhmm_util(hours_row.get("hours_reminder_office", 0))
+                ws.cell(row=row, column=hours_reminder_office_col).alignment = Alignment(horizontal="center")
+                ws.cell(row=row, column=hours_bot_remote_col).value = format_hours_to_hhmm_util(hours_row.get("hours_bot_remote", 0))
+                ws.cell(row=row, column=hours_bot_remote_col).alignment = Alignment(horizontal="center")
+                ws.cell(row=row, column=hours_reminder_remote_col).value = format_hours_to_hhmm_util(hours_row.get("hours_reminder_remote", 0))
+                ws.cell(row=row, column=hours_reminder_remote_col).alignment = Alignment(horizontal="center")
+
                 row += 1
-            
+
             # Автоподбор ширины колонок
             from openpyxl.utils import get_column_letter
             ws.column_dimensions['A'].width = 25
-            for col_idx in range(2, total_col + 1):
+            for col_idx in range(2, hours_reminder_remote_col + 1):
                 ws.column_dimensions[get_column_letter(col_idx)].width = 12
             
             # Сохраняем в память
@@ -2038,7 +2076,53 @@ async def export_pivot_report(
             )
         except ImportError:
             raise HTTPException(status_code=500, detail="Excel export requires openpyxl library")
-    
+
+    elif format == "md":
+        header_cols = (
+            ["Сотрудник"]
+            + [datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m") for day in report_data["days"]]
+            + [
+                "Итого",
+                "Уходы QR", "Уходы по напоминанию (офис)", "Уходы через бота", "Уходы по напоминанию (удалёнка)",
+                "Часы по QR", "Часы по напоминанию (офис)", "Часы через бота", "Часы по напоминанию (удалёнка)",
+            ]
+        )
+        lines = [
+            f"# Отчет {start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}",
+            "",
+            "| " + " | ".join(header_cols) + " |",
+            "|---|" + "|".join("---:" for _ in range(len(header_cols) - 1)) + "|",
+        ]
+
+        for employee in report_data["employees"]:
+            employee_id = employee["id"]
+            fio = employee["fio"]
+            row_values = [fio]
+            for day in report_data["days"]:
+                hours = report_data["data"][employee_id].get(day, 0)
+                row_values.append(format_hours_to_hhmm_util(hours))
+            total_hours = report_data["totals"][employee_id]
+            source_row = source_summary.get(employee_id, {})
+            hours_row = hours_summary.get(employee_id, {})
+            row_values.append(format_hours_to_hhmm_util(total_hours))
+            row_values.append(str(source_row.get("checkout_qr", 0)))
+            row_values.append(str(source_row.get("checkout_reminder_office", 0)))
+            row_values.append(str(source_row.get("checkout_bot_remote", 0)))
+            row_values.append(str(source_row.get("checkout_reminder_remote", 0)))
+            row_values.append(format_hours_to_hhmm_util(hours_row.get("hours_qr", 0)))
+            row_values.append(format_hours_to_hhmm_util(hours_row.get("hours_reminder_office", 0)))
+            row_values.append(format_hours_to_hhmm_util(hours_row.get("hours_bot_remote", 0)))
+            row_values.append(format_hours_to_hhmm_util(hours_row.get("hours_reminder_remote", 0)))
+            lines.append("| " + " | ".join(row_values) + " |")
+
+        content = "\n".join(lines) + "\n"
+        filename = f"pivot_report_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.md"
+        return Response(
+            content=content,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
     else:  # CSV
         import csv
         import io
@@ -2047,21 +2131,39 @@ async def export_pivot_report(
         writer = csv.writer(output)
         
         # Заголовки
-        headers = ["Сотрудник"] + [datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m") for day in report_data['days']] + ["Итого"]
+        headers = (
+            ["Сотрудник"]
+            + [datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m") for day in report_data['days']]
+            + [
+                "Итого",
+                "Уходы QR", "Уходы по напоминанию (офис)", "Уходы через бота", "Уходы по напоминанию (удалёнка)",
+                "Часы по QR", "Часы по напоминанию (офис)", "Часы через бота", "Часы по напоминанию (удалёнка)",
+            ]
+        )
         writer.writerow(headers)
-        
+
         # Данные
         for employee in report_data['employees']:
             employee_id = employee['id']
             fio = employee['fio']
             row = [fio]
-            
+
             for day in report_data['days']:
                 hours = report_data['data'][employee_id].get(day, 0)
                 row.append(format_hours_to_hhmm_util(hours))
-            
+
             total_hours = report_data['totals'][employee_id]
+            source_row = source_summary.get(employee_id, {})
+            hours_row = hours_summary.get(employee_id, {})
             row.append(format_hours_to_hhmm_util(total_hours))
+            row.append(source_row.get("checkout_qr", 0))
+            row.append(source_row.get("checkout_reminder_office", 0))
+            row.append(source_row.get("checkout_bot_remote", 0))
+            row.append(source_row.get("checkout_reminder_remote", 0))
+            row.append(format_hours_to_hhmm_util(hours_row.get("hours_qr", 0)))
+            row.append(format_hours_to_hhmm_util(hours_row.get("hours_reminder_office", 0)))
+            row.append(format_hours_to_hhmm_util(hours_row.get("hours_bot_remote", 0)))
+            row.append(format_hours_to_hhmm_util(hours_row.get("hours_reminder_remote", 0)))
             writer.writerow(row)
         
         filename = f"pivot_report_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.csv"

@@ -1,230 +1,57 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>История пользователя - {{ user.fio }}</title>
-    <style>
-        :root {
-            --bg: #0f172a;
-            --card: #111827;
-            --text: #e5e7eb;
-            --muted: #94a3b8;
-            --accent: #0ea5e9;
-            --accent-hover: #0284c7;
-            --border: #1f2937;
-            --shadow: 0 10px 30px rgba(0,0,0,0.35);
-            --success: #22c55e;
-            --danger: #ef4444;
-        }
-        body {
-            font-family: Arial, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-        }
-        .nav {
-            margin-bottom: 2rem;
-        }
-        .nav a {
-            padding: 0.5rem 1rem;
-            background: var(--accent);
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            box-shadow: 0 4px 10px rgba(14,165,233,0.25);
-            transition: background 0.15s ease, transform 0.1s ease;
-        }
-        .nav a:hover {
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-        }
-        .user-info {
-            background: var(--card);
-            border-radius: 12px;
-            box-shadow: var(--shadow);
-            padding: 1.5rem;
-            border: 1px solid var(--border);
-            margin-bottom: 2rem;
-        }
-        .user-info h2 {
-            margin-top: 0;
-            color: var(--text);
-        }
-        .events-section {
-            background: var(--card);
-            border-radius: 12px;
-            box-shadow: var(--shadow);
-            padding: 1.5rem;
-            border: 1px solid var(--border);
-        }
-        .events-section h3 {
-            margin-top: 0;
-            color: var(--text);
-        }
-        .table-wrapper {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            margin: 1rem 0;
-        }
-        table {
-            width: 100%;
-            min-width: 600px;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        th, td {
-            padding: 0.75rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-        }
-        th {
-            background-color: #0b1220;
-            font-weight: 600;
-            color: var(--text);
-        }
-        .action-in {
-            color: var(--success);
-            font-weight: bold;
-        }
-        .action-out {
-            color: var(--danger);
-            font-weight: bold;
-        }
-        .row-remote {
-            background: rgba(168, 85, 247, 0.08);
-            border-left: 3px solid #a855f7;
-        }
-        .remote-badge {
-            margin-left: 0.35rem;
-            font-size: 0.85rem;
-        }
-        .no-data {
-            text-align: center;
-            color: var(--muted);
-            padding: 2rem;
-        }
-        /* Mobile styles */
-        @media (max-width: 768px) {
-            body {
-                padding: 1rem;
-            }
-            .container {
-                max-width: 100%;
-            }
-            .header h1 {
-                font-size: 1.5rem;
-            }
-            .nav {
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-            }
-            .nav a {
-                width: 100%;
-                text-align: center;
-                padding: 0.75rem;
-                min-height: 44px;
-            }
-            .user-info, .events-section {
-                padding: 1rem;
-                margin-bottom: 1rem;
-            }
-            .user-info h2, .events-section h3 {
-                font-size: 1.1rem;
-            }
-            table {
-                display: block;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-            th, td {
-                padding: 0.5rem;
-                font-size: 0.85rem;
-                white-space: nowrap;
-            }
-        }
-        @media (max-width: 480px) {
-            body {
-                padding: 0.5rem;
-            }
-            .user-info, .events-section {
-                padding: 0.75rem;
-            }
-            .header h1 {
-                font-size: 1.25rem;
-            }
-            th, td {
-                padding: 0.4rem;
-                font-size: 0.8rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>История пользователя</h1>
-        </div>
+{% extends "base.html" %}
+{% block title %}История — {{ user.fio }}{% endblock %}
+{% block content %}
+<div class="page-header flex flex-wrap items-center justify-between gap-4">
+  <div>
+    <h1 class="page-title">История пользователя</h1>
+    <p class="page-subtitle"><a href="/admin" class="text-[var(--accent)] hover:underline">← Сейчас на работе</a></p>
+  </div>
+</div>
 
-        <div class="nav">
-            <a href="/admin">← Назад к админ-панели</a>
-        </div>
+<div class="card mb-6">
+  <h2 class="card-header">{{ user.fio }}</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+    <p class="text-[var(--text-secondary)]"><strong class="text-[var(--text-primary)]">Telegram ID:</strong> {{ user.tg_user_id }}</p>
+    {% if user.username %}<p class="text-[var(--text-secondary)]"><strong class="text-[var(--text-primary)]">Username:</strong> @{{ user.username }}</p>{% endif %}
+    <p class="text-[var(--text-secondary)]"><strong class="text-[var(--text-primary)]">Регистрация:</strong> {{ user.created_at[:19].replace('T', ' ') }}</p>
+  </div>
+</div>
 
-        <div class="user-info">
-            <h2>{{ user.fio }}</h2>
-            <p><strong>Telegram ID:</strong> {{ user.tg_user_id }}</p>
-            {% if user.username %}
-            <p><strong>Username:</strong> @{{ user.username }}</p>
-            {% endif %}
-            <p><strong>Дата регистрации:</strong> {{ user.created_at[:19].replace('T', ' ') }}</p>
-        </div>
-
-        <div class="events-section">
-            <h3>История событий</h3>
-            {% if events %}
-            <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Дата и время</th>
-                        <th>Локация</th>
-                        <th>Действие</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for event in events %}
-                    <tr class="{% if event.location == 'remote' %}row-remote{% endif %}">
-                        <td>{{ event.ts[:19].replace('T', ' ') }}</td>
-                        <td>
-                            {{ 'Удалёнка' if event.location == 'remote' else ('Офис' if event.location == 'global' else event.location.replace('_', ' ').title()) }}
-                            {% if event.location == 'remote' %}
-                            <span class="remote-badge" title="Удалённая работа">🏠</span>
-                            {% endif %}
-                        </td>
-                        <td class="action-{{ event.action }}">
-                            {% if event.action == 'in' %}Пришёл{% else %}Ушёл{% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            </div>
-            {% else %}
-            <div class="no-data">
-                У пользователя пока нет событий
-            </div>
-            {% endif %}
-        </div>
-    </div>
-</body>
-</html>
+<div class="card">
+  <h2 class="card-header">События</h2>
+  {% if events %}
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Дата и время</th>
+          <th>Локация</th>
+          <th>Действие</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in events %}
+        <tr class="{% if event.location == 'remote' %}bg-[var(--accent-muted)]/50{% endif %}">
+          <td class="text-[var(--text-secondary)]">{{ event.ts[:19].replace('T', ' ') }}</td>
+          <td>
+            {{ 'Удалёнка' if event.location == 'remote' else ('Офис' if event.location == 'global' else event.location.replace('_', ' ').title()) }}
+            {% if event.location == 'remote' %}<span class="badge badge-primary ml-1">🏠</span>{% endif %}
+          </td>
+          <td>
+            <span class="badge {% if event.action == 'in' %}badge-success{% else %}badge-danger{% endif %}">
+              {% if event.action == 'in' %}Пришёл{% else %}Ушёл{% endif %}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p class="empty-state-title">Нет событий</p>
+    <p>У пользователя пока нет событий прихода/ухода.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
