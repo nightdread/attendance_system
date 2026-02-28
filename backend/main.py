@@ -89,7 +89,8 @@ app = FastAPI(
         "name": "Attendance System Support",
     },
     license_info={
-        "name": "Proprietary",
+        "name": "MIT",
+        "url": "https://opensource.org/licenses/MIT",
     },
     tags_metadata=[
         {
