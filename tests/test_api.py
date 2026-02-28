@@ -23,9 +23,10 @@ class TestAPIEndpoints:
         assert response.status_code == 200
         assert "login" in response.text.lower()
 
-        # Терминал теперь публичный
+        # Терминал требует авторизацию — редирект на логин
         response = test_client.get("/terminal", allow_redirects=False)
-        assert response.status_code == 200
+        assert response.status_code == 302
+        assert "/login" in response.headers.get("location", "")
 
         response = test_client.get("/admin", allow_redirects=False)
         assert response.status_code == 302
