@@ -103,4 +103,6 @@ build/
 # Documentation (keep only README.md)
 *.md
 !README.md
+# Release process (local doc, not tracked)
+docs/RELEASES.md
 backups/attendance_backup_20260221_143602.db.gz
