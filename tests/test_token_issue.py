@@ -2,6 +2,7 @@
 """
 Скрипт для проверки выдачи токена для отметки приходящих сотрудников
 """
+import os
 import requests
 import json
 from urllib.parse import urljoin
@@ -10,10 +11,23 @@ import urllib3
 # Отключаем предупреждения SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-BASE_URL = "https://attendance.141922.ru"
+BASE_URL = os.environ.get("ATTENDANCE_TEST_URL", "https://attendance.141922.ru")
+
 
 def test_token_endpoints():
-    """Тестирует различные способы получения токена"""
+    """Тестирует различные способы получения токена (интеграционный: требует .env с API_KEY или локальный сервер)."""
+    import pytest
+    # В CI без API_KEY и без локального сервера — пропускаем
+    env_file = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '.env'))
+    api_key_configured = False
+    if os.path.exists(env_file):
+        with open(env_file, 'r') as f:
+            for line in f:
+                if line.startswith('API_KEY=') and line.split('=', 1)[1].strip():
+                    api_key_configured = True
+                    break
+    if not api_key_configured and os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+        pytest.skip("Integration test: API_KEY not set in CI")
     print("=" * 70)
     print("ПРОВЕРКА ВЫДАЧИ ТОКЕНА ДЛЯ ОТМЕТКИ СОТРУДНИКОВ")
     print("=" * 70)
@@ -54,21 +68,20 @@ def test_token_endpoints():
         results['public_token'] = False
         results['public_token_error'] = str(e)
     
+    # Получаем API ключ из .env (один раз для тестов 2 и 3)
+    env_file = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '.env'))
+    api_key = None
+    if os.path.exists(env_file):
+        with open(env_file, 'r') as f:
+            for line in f:
+                if line.startswith('API_KEY='):
+                    api_key = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    break
+
     # Тест 2: /api/token с API ключом
     print("\n2. Тест: /api/token (с API ключом)")
     print("-" * 70)
     try:
-        # Получаем API ключ из .env
-        import os
-        env_file = os.path.join(os.path.dirname(__file__), '.env')
-        api_key = None
-        if os.path.exists(env_file):
-            with open(env_file, 'r') as f:
-                for line in f:
-                    if line.startswith('API_KEY='):
-                        api_key = line.split('=', 1)[1].strip()
-                        break
-        
         if api_key:
             response = requests.get(
                 urljoin(BASE_URL, "/api/token"),
@@ -195,16 +208,17 @@ def test_token_endpoints():
     
     print("\n" + "=" * 70)
     
-    # Общий результат
-    success_count = sum([
-        results.get('public_token') or (results.get('public_token') is False and results.get('public_token_reason') == "Requires API key"),
-        results.get('api_token') or results.get('active_token'),
-        results.get('token_format') and all([
-            results['token_format'].get('valid_length'),
-            results['token_format'].get('token_in_url'),
-            results['token_format'].get('url_format_valid')
-        ])
-    ])
+    # Общий результат (каждый пункт — 0 или 1, без None)
+    part1 = 1 if (results.get('public_token') or (
+        results.get('public_token') is False and results.get('public_token_reason') == "Requires API key"
+    )) else 0
+    part2 = 1 if (results.get('api_token') or results.get('active_token')) else 0
+    part3 = 1 if (results.get('token_format') and all([
+        results['token_format'].get('valid_length'),
+        results['token_format'].get('token_in_url'),
+        results['token_format'].get('url_format_valid')
+    ])) else 0
+    success_count = part1 + part2 + part3
     
     if success_count >= 2:
         print("✅ ОБЩИЙ РЕЗУЛЬТАТ: Токен выдается корректно")
