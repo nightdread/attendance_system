@@ -59,6 +59,8 @@ test_*.py
 # Documentation
 README.md
 *.md
+docs/
+examples/
 
 # Cursor / coverage / misc
 .cursor/

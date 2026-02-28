@@ -10,7 +10,6 @@ Pytest configuration and fixtures
 """
 import pytest
 import asyncio
-import os
 import tempfile
 import shutil
 import sys

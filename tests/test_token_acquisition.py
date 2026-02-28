@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """
-Скрипт для тестирования сброса сессии и получения токена
+Скрипт для тестирования сброса сессии и получения токена.
+Учётные данные: TEST_USERNAME, TEST_PASSWORD, TEST_BASE_URL из env.
 """
+import os
 import requests
 import sys
 from urllib.parse import urljoin
 
-# Конфигурация
-BASE_URL = "https://attendance.141922.ru"
-# Или локально: BASE_URL = "http://localhost:8000"
-
-# Учетные данные из .env
-USERNAME = "admin"
-PASSWORD = "PYC$$pehxZ2OG&6Hb"
+BASE_URL = os.environ.get("TEST_BASE_URL", "https://attendance.141922.ru")
+USERNAME = os.environ.get("TEST_USERNAME", "admin")
+PASSWORD = os.environ.get("TEST_PASSWORD", "testpass123")
 
 def test_token_acquisition():
     """Тестирует получение токена после сброса сессии"""

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Простой тест логина с правильным экранированием
+Простой тест логина с правильным экранированием.
+Учётные данные: TEST_USERNAME, TEST_PASSWORD, TEST_BASE_URL из env.
 """
+import os
 import requests
 from urllib.parse import urljoin
 
-BASE_URL = "https://attendance.141922.ru"
-USERNAME = "admin"
-PASSWORD = "PYC$$pehxZ2OG&6Hb"
+BASE_URL = os.environ.get("TEST_BASE_URL", "https://attendance.141922.ru")
+USERNAME = os.environ.get("TEST_USERNAME", "admin")
+PASSWORD = os.environ.get("TEST_PASSWORD", "testpass123")
 
 session = requests.Session()
 session.verify = False

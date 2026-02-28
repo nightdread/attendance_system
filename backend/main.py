@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, Response
 import json
@@ -40,6 +41,13 @@ from utils.validators import (
 )
 from utils.rate_limit import rate_limit
 from utils.csrf import set_csrf_token, get_csrf_token, require_csrf_token
+from utils.time_formatter import format_hours_to_hhmm
+from backend.export_pivot import (
+    build_pivot_xlsx,
+    build_pivot_csv,
+    build_pivot_md,
+    save_pivot_xlsx_to_path,
+)
 
 app = FastAPI(
     title="Attendance System API",
@@ -253,6 +261,37 @@ db = Database(str(DB_PATH))
 def get_db():
     return db
 
+
+def _parse_report_period(
+    period: Optional[str],
+    start_date: Optional[str],
+    end_date: Optional[str],
+) -> tuple:
+    """
+    Parse report period from period alias or explicit dates.
+    Returns (start: date, end: date).
+    Raises HTTPException on invalid input.
+    """
+    today = datetime.now(timezone.utc).date()
+    if period == "last_week":
+        end = today - timedelta(days=1)
+        start = end - timedelta(days=6)
+    elif period == "last_month":
+        end = today - timedelta(days=1)
+        start = end - timedelta(days=29)
+    elif period == "current_month":
+        start = today.replace(day=1)
+        end = today
+    elif start_date and end_date:
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        raise HTTPException(status_code=400, detail="Either period or start_date+end_date must be provided")
+    return start, end
+
 def build_terminal_context(request: Request, db: Database) -> dict:
     """Prepare context for the public terminal page"""
     token_data = db.get_active_token()
@@ -440,7 +479,8 @@ async def login(
                     {
                         "request": request,
                         "error": "Слишком много попыток. Попробуйте позже.",
-                        "next_url": next_url
+                        "next_url": next_url,
+                        "csrf_token": get_csrf_token(request) or set_csrf_token(request),
                     }
                 )
 
@@ -455,7 +495,8 @@ async def login(
                     {
                         "request": request,
                         "error": "Слишком много попыток. Попробуйте позже.",
-                        "next_url": next_url
+                        "next_url": next_url,
+                        "csrf_token": get_csrf_token(request) or set_csrf_token(request),
                     }
                 )
         else:
@@ -469,7 +510,8 @@ async def login(
                     {
                         "request": request,
                         "error": "Слишком много попыток. Попробуйте позже.",
-                        "next_url": next_url
+                        "next_url": next_url,
+                        "csrf_token": get_csrf_token(request) or set_csrf_token(request),
                     }
                 )
     except Exception as e:
@@ -1661,26 +1703,7 @@ async def send_report_email(
     except EmailNotValidError:
         raise HTTPException(status_code=400, detail="Invalid email address")
     
-    # Генерируем отчет
-    today = datetime.now(timezone.utc).date()
-    
-    if period == "last_week":
-        end = today - timedelta(days=1)
-        start = end - timedelta(days=6)
-    elif period == "last_month":
-        end = today - timedelta(days=1)
-        start = end - timedelta(days=29)
-    elif period == "current_month":
-        start = today.replace(day=1)
-        end = today
-    elif start_date and end_date:
-        try:
-            start = datetime.strptime(start_date, "%Y-%m-%d").date()
-            end = datetime.strptime(end_date, "%Y-%m-%d").date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    else:
-        raise HTTPException(status_code=400, detail="Either period or start_date+end_date must be provided")
+    start, end = _parse_report_period(period, start_date, end_date)
     
     # Создаем временный файл
     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{format}") as tmp_file:
@@ -1688,52 +1711,22 @@ async def send_report_email(
         
         if report_type == "pivot":
             report_data = db.get_pivot_report(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
-            
+            source_summary = db.get_checkout_source_summary(
+                start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+            )
+            hours_summary = db.get_checkout_hours_summary(
+                start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+            )
             if format == "xlsx":
-                from openpyxl import Workbook
-                from openpyxl.styles import Font, Alignment, PatternFill
-                
-                wb = Workbook()
-                ws = wb.active
-                ws.title = "Отчет"
-                
-                ws['A1'] = "Сотрудник"
-                header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-                header_font = Font(bold=True, color="FFFFFF")
-                ws['A1'].fill = header_fill
-                ws['A1'].font = header_font
-                
-                col = 2
-                for day in report_data['days']:
-                    cell = ws.cell(row=1, column=col)
-                    cell.value = datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m")
-                    cell.fill = header_fill
-                    cell.font = header_font
-                    col += 1
-                
-                total_col = col
-                ws.cell(row=1, column=total_col).value = "Итого"
-                ws.cell(row=1, column=total_col).fill = header_fill
-                ws.cell(row=1, column=total_col).font = header_font
-                
-                row = 2
-                for employee in report_data['employees']:
-                    employee_id = employee['id']
-                    ws.cell(row=row, column=1).value = employee['fio']
-                    
-                    col = 2
-                    for day in report_data['days']:
-                        hours = report_data['data'][employee_id].get(day, 0)
-                        ws.cell(row=row, column=col).value = format_hours_to_hhmm_util(hours)
-                        col += 1
-                    
-                    total_hours = report_data['totals'][employee_id]
-                    ws.cell(row=row, column=total_col).value = format_hours_to_hhmm_util(total_hours)
-                    ws.cell(row=row, column=total_col).font = Font(bold=True)
-                    row += 1
-                
-                ws.column_dimensions['A'].width = 25
-                wb.save(report_path)
+                save_pivot_xlsx_to_path(
+                    report_data,
+                    source_summary,
+                    hours_summary,
+                    start,
+                    end,
+                    format_hours_to_hhmm_util,
+                    report_path,
+                )
         
         # Отправляем email
         report_name = f"Отчет_{report_type}_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}"
@@ -1893,12 +1886,10 @@ async def get_metrics(db: Database = Depends(get_db)):
     return metrics
 
 def format_hours_to_hhmm_util(hours: float) -> str:
-    """Утилита для форматирования часов в ЧЧ:ММ"""
-    if hours <= 0:
+    """Утилита для форматирования часов в ЧЧ:ММ (использует time_formatter, "-" для нуля/отрицательных)."""
+    if hours is None or hours <= 0:
         return "-"
-    whole_hours = int(hours)
-    minutes = int((hours - whole_hours) * 60)
-    return f"{whole_hours}:{minutes:02d}"
+    return format_hours_to_hhmm(hours)
 
 @app.get("/api/export/pivot")
 async def export_pivot_report(
@@ -1926,26 +1917,7 @@ async def export_pivot_report(
     username = payload.get("sub", "unknown")
     log_data_export("pivot_report", username, {"period": period, "format": format})
     
-    # Определяем период
-    today = datetime.now(timezone.utc).date()
-    
-    if period == "last_week":
-        end = today - timedelta(days=1)
-        start = end - timedelta(days=6)
-    elif period == "last_month":
-        end = today - timedelta(days=1)
-        start = end - timedelta(days=29)  # Последние 30 дней
-    elif period == "current_month":
-        start = today.replace(day=1)
-        end = today
-    elif start_date and end_date:
-        try:
-            start = datetime.strptime(start_date, "%Y-%m-%d").date()
-            end = datetime.strptime(end_date, "%Y-%m-%d").date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    else:
-        raise HTTPException(status_code=400, detail="Either period or start_date+end_date must be provided")
+    start, end = _parse_report_period(period, start_date, end_date)
     
     format = (format or "csv").lower()
     if format not in {"csv", "xlsx", "md"}:
@@ -1956,231 +1928,23 @@ async def export_pivot_report(
     source_summary = db.get_checkout_source_summary(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
     hours_summary = db.get_checkout_hours_summary(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
 
+    fmt_hours = format_hours_to_hhmm_util
     if format == "xlsx":
-        try:
-            from openpyxl import Workbook
-            from openpyxl.styles import Font, Alignment, PatternFill
-            import io
-            
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Отчет"
-            
-            # Заголовок
-            ws['A1'] = "Сотрудник"
-            header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-            header_font = Font(bold=True, color="FFFFFF")
-            ws['A1'].fill = header_fill
-            ws['A1'].font = header_font
-            ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
-            
-            # Дни в заголовках
-            col = 2
-            for day in report_data['days']:
-                cell = ws.cell(row=1, column=col)
-                cell.value = datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m")
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-                col += 1
-            
-            # Итого + источники checkout (офис: QR, напоминание; удалёнка: бот, напоминание) + часы по типу ухода
-            total_col = col
-            ws.cell(row=1, column=total_col).value = "Итого"
-            ws.cell(row=1, column=total_col).fill = header_fill
-            ws.cell(row=1, column=total_col).font = header_font
-            ws.cell(row=1, column=total_col).alignment = Alignment(horizontal="center", vertical="center")
-            qr_col = total_col + 1
-            reminder_office_col = total_col + 2
-            bot_remote_col = total_col + 3
-            reminder_remote_col = total_col + 4
-            hours_qr_col = total_col + 5
-            hours_reminder_office_col = total_col + 6
-            hours_bot_remote_col = total_col + 7
-            hours_reminder_remote_col = total_col + 8
-            for c, title in [
-                (qr_col, "Уходы QR"),
-                (reminder_office_col, "Уходы по напоминанию (офис)"),
-                (bot_remote_col, "Уходы через бота"),
-                (reminder_remote_col, "Уходы по напоминанию (удалёнка)"),
-                (hours_qr_col, "Часы по QR"),
-                (hours_reminder_office_col, "Часы по напоминанию (офис)"),
-                (hours_bot_remote_col, "Часы через бота"),
-                (hours_reminder_remote_col, "Часы по напоминанию (удалёнка)"),
-            ]:
-                ws.cell(row=1, column=c).value = title
-                ws.cell(row=1, column=c).fill = header_fill
-                ws.cell(row=1, column=c).font = header_font
-                ws.cell(row=1, column=c).alignment = Alignment(horizontal="center", vertical="center")
-
-            # Данные
-            row = 2
-            for employee in report_data['employees']:
-                employee_id = employee['id']
-                fio = employee['fio']
-
-                # Фамилия
-                ws.cell(row=row, column=1).value = fio
-
-                # Часы по дням
-                col = 2
-                for day in report_data['days']:
-                    hours = report_data['data'][employee_id].get(day, 0)
-                    cell = ws.cell(row=row, column=col)
-                    cell.value = format_hours_to_hhmm_util(hours)
-                    cell.alignment = Alignment(horizontal="center")
-                    col += 1
-
-                # Итого
-                total_hours = report_data['totals'][employee_id]
-                ws.cell(row=row, column=total_col).value = format_hours_to_hhmm_util(total_hours)
-                ws.cell(row=row, column=total_col).font = Font(bold=True)
-                ws.cell(row=row, column=total_col).alignment = Alignment(horizontal="center")
-
-                source_row = source_summary.get(employee_id, {})
-                hours_row = hours_summary.get(employee_id, {})
-                ws.cell(row=row, column=qr_col).value = source_row.get("checkout_qr", 0)
-                ws.cell(row=row, column=qr_col).alignment = Alignment(horizontal="center")
-                ws.cell(row=row, column=reminder_office_col).value = source_row.get("checkout_reminder_office", 0)
-                ws.cell(row=row, column=reminder_office_col).alignment = Alignment(horizontal="center")
-                ws.cell(row=row, column=bot_remote_col).value = source_row.get("checkout_bot_remote", 0)
-                ws.cell(row=row, column=bot_remote_col).alignment = Alignment(horizontal="center")
-                ws.cell(row=row, column=reminder_remote_col).value = source_row.get("checkout_reminder_remote", 0)
-                ws.cell(row=row, column=reminder_remote_col).alignment = Alignment(horizontal="center")
-                ws.cell(row=row, column=hours_qr_col).value = format_hours_to_hhmm_util(hours_row.get("hours_qr", 0))
-                ws.cell(row=row, column=hours_qr_col).alignment = Alignment(horizontal="center")
-                ws.cell(row=row, column=hours_reminder_office_col).value = format_hours_to_hhmm_util(hours_row.get("hours_reminder_office", 0))
-                ws.cell(row=row, column=hours_reminder_office_col).alignment = Alignment(horizontal="center")
-                ws.cell(row=row, column=hours_bot_remote_col).value = format_hours_to_hhmm_util(hours_row.get("hours_bot_remote", 0))
-                ws.cell(row=row, column=hours_bot_remote_col).alignment = Alignment(horizontal="center")
-                ws.cell(row=row, column=hours_reminder_remote_col).value = format_hours_to_hhmm_util(hours_row.get("hours_reminder_remote", 0))
-                ws.cell(row=row, column=hours_reminder_remote_col).alignment = Alignment(horizontal="center")
-
-                row += 1
-
-            # Автоподбор ширины колонок
-            from openpyxl.utils import get_column_letter
-            ws.column_dimensions['A'].width = 25
-            for col_idx in range(2, hours_reminder_remote_col + 1):
-                ws.column_dimensions[get_column_letter(col_idx)].width = 12
-            
-            # Сохраняем в память
-            output = io.BytesIO()
-            wb.save(output)
-            output.seek(0)
-            
-            filename = f"pivot_report_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.xlsx"
-            return Response(
-                content=output.read(),
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-            )
-        except ImportError:
-            raise HTTPException(status_code=500, detail="Excel export requires openpyxl library")
-
-    elif format == "md":
-        header_cols = (
-            ["Сотрудник"]
-            + [datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m") for day in report_data["days"]]
-            + [
-                "Итого",
-                "Уходы QR", "Уходы по напоминанию (офис)", "Уходы через бота", "Уходы по напоминанию (удалёнка)",
-                "Часы по QR", "Часы по напоминанию (офис)", "Часы через бота", "Часы по напоминанию (удалёнка)",
-            ]
+        return build_pivot_xlsx(
+            report_data, source_summary, hours_summary, start, end, fmt_hours
         )
-        lines = [
-            f"# Отчет {start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}",
-            "",
-            "| " + " | ".join(header_cols) + " |",
-            "|---|" + "|".join("---:" for _ in range(len(header_cols) - 1)) + "|",
-        ]
-
-        for employee in report_data["employees"]:
-            employee_id = employee["id"]
-            fio = employee["fio"]
-            row_values = [fio]
-            for day in report_data["days"]:
-                hours = report_data["data"][employee_id].get(day, 0)
-                row_values.append(format_hours_to_hhmm_util(hours))
-            total_hours = report_data["totals"][employee_id]
-            source_row = source_summary.get(employee_id, {})
-            hours_row = hours_summary.get(employee_id, {})
-            row_values.append(format_hours_to_hhmm_util(total_hours))
-            row_values.append(str(source_row.get("checkout_qr", 0)))
-            row_values.append(str(source_row.get("checkout_reminder_office", 0)))
-            row_values.append(str(source_row.get("checkout_bot_remote", 0)))
-            row_values.append(str(source_row.get("checkout_reminder_remote", 0)))
-            row_values.append(format_hours_to_hhmm_util(hours_row.get("hours_qr", 0)))
-            row_values.append(format_hours_to_hhmm_util(hours_row.get("hours_reminder_office", 0)))
-            row_values.append(format_hours_to_hhmm_util(hours_row.get("hours_bot_remote", 0)))
-            row_values.append(format_hours_to_hhmm_util(hours_row.get("hours_reminder_remote", 0)))
-            lines.append("| " + " | ".join(row_values) + " |")
-
-        content = "\n".join(lines) + "\n"
-        filename = f"pivot_report_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.md"
-        return Response(
-            content=content,
-            media_type="text/markdown; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    if format == "md":
+        return build_pivot_md(
+            report_data, source_summary, hours_summary, start, end, fmt_hours
         )
+    return build_pivot_csv(
+        report_data, source_summary, hours_summary, start, end, fmt_hours
+    )
 
-    else:  # CSV
-        import csv
-        import io
-        
-        output = io.StringIO()
-        writer = csv.writer(output)
-        
-        # Заголовки
-        headers = (
-            ["Сотрудник"]
-            + [datetime.strptime(day, "%Y-%m-%d").strftime("%d.%m") for day in report_data['days']]
-            + [
-                "Итого",
-                "Уходы QR", "Уходы по напоминанию (офис)", "Уходы через бота", "Уходы по напоминанию (удалёнка)",
-                "Часы по QR", "Часы по напоминанию (офис)", "Часы через бота", "Часы по напоминанию (удалёнка)",
-            ]
-        )
-        writer.writerow(headers)
+# Include route modules
+from backend.routes.misc import router as misc_router
 
-        # Данные
-        for employee in report_data['employees']:
-            employee_id = employee['id']
-            fio = employee['fio']
-            row = [fio]
-
-            for day in report_data['days']:
-                hours = report_data['data'][employee_id].get(day, 0)
-                row.append(format_hours_to_hhmm_util(hours))
-
-            total_hours = report_data['totals'][employee_id]
-            source_row = source_summary.get(employee_id, {})
-            hours_row = hours_summary.get(employee_id, {})
-            row.append(format_hours_to_hhmm_util(total_hours))
-            row.append(source_row.get("checkout_qr", 0))
-            row.append(source_row.get("checkout_reminder_office", 0))
-            row.append(source_row.get("checkout_bot_remote", 0))
-            row.append(source_row.get("checkout_reminder_remote", 0))
-            row.append(format_hours_to_hhmm_util(hours_row.get("hours_qr", 0)))
-            row.append(format_hours_to_hhmm_util(hours_row.get("hours_reminder_office", 0)))
-            row.append(format_hours_to_hhmm_util(hours_row.get("hours_bot_remote", 0)))
-            row.append(format_hours_to_hhmm_util(hours_row.get("hours_reminder_remote", 0)))
-            writer.writerow(row)
-        
-        filename = f"pivot_report_{start.strftime('%Y%m%d')}_{end.strftime('%Y%m%d')}.csv"
-        return Response(
-            content=output.getvalue(),
-            media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
-
-@app.get("/robots.txt", response_class=PlainTextResponse)
-async def robots():
-    return "User-agent: *\nDisallow: /\n"
-
-@app.get("/favicon.ico")
-async def favicon():
-    return Response(status_code=204)
+app.include_router(misc_router)
 
 if __name__ == "__main__":
     uvicorn.run(app, host=API_HOST, port=API_PORT)

@@ -4,11 +4,12 @@ Script to reset passwords for web users without deleting data
 """
 import sys
 import os
-import secrets
 sys.path.append('.')
 
 from database import Database
 from auth.jwt_handler import JWTHandler
+from tools.default_users import get_default_users_for_reset_passwords
+
 
 def reset_passwords():
     """Reset passwords for all web users and create terminal user if missing"""
@@ -17,41 +18,7 @@ def reset_passwords():
     print("🔑 Resetting passwords for web users")
     print("=" * 50)
 
-    # Default users with new passwords
-    default_users = [
-        {
-            'username': 'admin',
-            'password': 'admin123',
-            'full_name': 'System Administrator',
-            'role': 'admin',
-            'department': 'IT',
-            'position': 'Administrator'
-        },
-        {
-            'username': 'manager',
-            'password': 'manager123',
-            'full_name': 'Manager User',
-            'role': 'manager',
-            'department': 'Management',
-            'position': 'Manager'
-        },
-        {
-            'username': 'hr',
-            'password': 'hr123',
-            'full_name': 'HR User',
-            'role': 'hr',
-            'department': 'HR',
-            'position': 'HR Manager'
-        },
-        {
-            'username': 'terminal',
-            'password': secrets.token_urlsafe(10),  # Random password for terminal
-            'full_name': 'Terminal Service',
-            'role': 'terminal',
-            'department': 'IT',
-            'position': 'Terminal'
-        }
-    ]
+    default_users = get_default_users_for_reset_passwords()
 
     print("\n👤 Updating/Creating users...")
 

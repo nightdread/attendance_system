@@ -82,34 +82,3 @@ def rate_limit(
     
     return None
 
-
-# Pre-configured rate limiters for common use cases
-def rate_limit_api(max_requests: int = 100, window_seconds: int = 60):
-    """Rate limiter for API endpoints"""
-    def decorator(func):
-        async def wrapper(request: Request, *args, **kwargs):
-            rate_limit(request, max_requests=max_requests, window_seconds=window_seconds, key_prefix="api")
-            return await func(request, *args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def rate_limit_token_creation(max_requests: int = 5, window_seconds: int = 300):
-    """Rate limiter for token creation endpoints"""
-    def decorator(func):
-        async def wrapper(request: Request, *args, **kwargs):
-            rate_limit(request, max_requests=max_requests, window_seconds=window_seconds, key_prefix="token_creation")
-            return await func(request, *args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def rate_limit_user_management(max_requests: int = 20, window_seconds: int = 60):
-    """Rate limiter for user management endpoints"""
-    def decorator(func):
-        async def wrapper(request: Request, *args, **kwargs):
-            rate_limit(request, max_requests=max_requests, window_seconds=window_seconds, key_prefix="user_mgmt")
-            return await func(request, *args, **kwargs)
-        return wrapper
-    return decorator
-

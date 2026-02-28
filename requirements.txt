@@ -11,8 +11,7 @@ python-telegram-bot==22.6
 qrcode[pil]==8.0
 pillow==11.0.0
 
-# Auth
-pyjwt==2.10.1
+# Auth (python-jose used for JWT; pyjwt removed as unused)
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
 argon2-cffi==25.1.0
@@ -22,11 +21,6 @@ requests==2.32.3
 httpx>=0.27,<0.29
 itsdangerous==2.2.0
 email-validator==2.2.0
-
-# Tests
-pytest==8.3.4
-pytest-asyncio==0.24.0
-pytest-cov==6.0.0
 
 # Cache (sync redis; aioredis устарел и не используется)
 redis==5.2.1

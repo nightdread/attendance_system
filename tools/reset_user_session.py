@@ -10,7 +10,7 @@ import os
 from datetime import datetime, timezone
 
 # Добавляем путь проекта
-project_root = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from database import Database

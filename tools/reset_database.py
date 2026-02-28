@@ -8,6 +8,7 @@ sys.path.append('.')
 
 from database import Database
 from auth.jwt_handler import JWTHandler
+from tools.default_users import get_default_users_for_init, INIT_PASSWORDS
 
 def reset_database():
     """Reset database and create initial users"""
@@ -35,32 +36,7 @@ def create_users():
     """Create initial users: admin, director, hr"""
     db = Database('attendance.db')
 
-    users_data = [
-        {
-            'username': 'admin',
-            'password': 'admin123',
-            'full_name': 'System Administrator',
-            'role': 'admin',
-            'department': 'IT',
-            'position': 'Administrator'
-        },
-        {
-            'username': 'director',
-            'password': 'director123',
-            'full_name': 'Company Director',
-            'role': 'manager',  # Using manager role for director
-            'department': 'Management',
-            'position': 'Director'
-        },
-        {
-            'username': 'hr',
-            'password': 'hr123',
-            'full_name': 'HR Manager',
-            'role': 'hr',
-            'department': 'HR',
-            'position': 'HR Manager'
-        }
-    ]
+    users_data = get_default_users_for_init()
 
     print("\n👤 Creating users...")
 
@@ -125,11 +101,7 @@ def show_summary():
         for user in users:
             username = user[0]
             role = user[1]
-            password = {
-                'admin': 'admin123',
-                'director': 'director123',
-                'hr': 'hr123'
-            }.get(username, 'unknown')
+            password = INIT_PASSWORDS.get(username, 'unknown')
             print(f"   {username} ({role}): {password}")
 
 if __name__ == "__main__":
